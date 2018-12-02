@@ -18,20 +18,28 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
-#include "pg/pg.h"
+#include "platform.h"
 
-#include "rx/rx_spi.h"
+#ifdef USE_MCO
 
-uint16_t cc2500getRssiDbm(void);
-void cc2500setRssiDbm(uint8_t value);
-bool cc2500getGdo(void);
-#if defined(USE_RX_CC2500_SPI_PA_LNA) && defined(USE_RX_CC2500_SPI_DIVERSITY)
-void cc2500switchAntennae(void);
+#include "drivers/io.h"
+#include "pg/mco.h"
+
+void mcoInit(const mcoConfig_t *mcoConfig)
+{
+    // Only configure MCO2 with PLLI2SCLK as source for now.
+    // Other MCO1 and other sources can easily be added.
+    // For all F4 and F7 varianets, MCO1 is on PA8 and MCO2 is on PC9.
+
+    if (mcoConfig->enabled[1]) {
+        IO_t io = IOGetByTag(DEFIO_TAG_E(PC9));
+        IOInit(io, OWNER_MCO, 2);
+        HAL_RCC_MCOConfig(RCC_MCO2, RCC_MCO2SOURCE_PLLI2SCLK, RCC_MCODIV_4);
+        IOConfigGPIOAF(io, IO_CONFIG(GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_VERY_HIGH,  GPIO_NOPULL), GPIO_AF0_MCO);
+    }
+}
 #endif
-#if defined(USE_RX_CC2500_SPI_PA_LNA)
-void cc2500TxEnable(void);
-void cc2500TxDisable(void);
-#endif
-bool cc2500SpiInit(void);

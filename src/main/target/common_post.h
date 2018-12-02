@@ -138,13 +138,11 @@
 
 #if defined(USE_RX_FRSKY_SPI_D) || defined(USE_RX_FRSKY_SPI_X)
 #define USE_RX_CC2500
-#define USE_RX_CC2500_BIND
 #define USE_RX_FRSKY_SPI
 #endif
 
 #if defined(USE_RX_SFHSS_SPI)
 #define USE_RX_CC2500
-#define USE_RX_CC2500_BIND
 #endif
 
 // Burst dshot to default off if not configured explicitly by target
@@ -180,7 +178,7 @@
 #endif
 
 #if defined(USE_FLASH_M25P16)
-#define USE_FLASH
+#define USE_FLASH_CHIP
 #endif
 
 #if defined(USE_MAX7456)
@@ -203,4 +201,16 @@
 // CX10 is a special case of SPI RX which requires XN297
 #if defined(USE_RX_CX10)
 #define USE_RX_XN297
+#endif
+
+// Setup crystal frequency for backward compatibility
+// Should be set to zero for generic targets and set with CLI variable set system_hse_value.
+#ifdef GENERIC_TARGET
+#define SYSTEM_HSE_VALUE 0
+#else
+#ifdef TARGET_XTAL_MHZ
+#define SYSTEM_HSE_VALUE TARGET_XTAL_MHZ
+#else
+#define SYSTEM_HSE_VALUE (HSE_VALUE/1000000U)
+#endif
 #endif

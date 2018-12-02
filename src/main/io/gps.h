@@ -129,7 +129,6 @@ extern uint32_t GPS_distanceFlownInCm;     // distance flown since armed in cent
 extern int16_t GPS_angle[ANGLE_INDEX_COUNT];                // it's the angles that must be applied for GPS correction
 extern float dTnav;             // Delta Time in milliseconds for navigation computations, updated with every good GPS read
 extern float GPS_scaleLonDown;  // this is used to offset the shrinking longitude as we go towards the poles
-extern int16_t actual_speed[2];
 extern int16_t nav_takeoff_bearing;
 // navigation mode
 typedef enum {
@@ -162,6 +161,7 @@ extern uint8_t GPS_svinfo_cno[16];         // Carrier to Noise Ratio (Signal Str
 void gpsInit(void);
 void gpsUpdate(timeUs_t currentTimeUs);
 bool gpsNewFrame(uint8_t c);
+bool gpsIsHealthy(void); // Check for healthy communications
 struct serialPort_s;
 void gpsEnablePassthrough(struct serialPort_s *gpsPassthroughPort);
 void onGpsNewData(void);

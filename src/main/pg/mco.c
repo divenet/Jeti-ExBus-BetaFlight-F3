@@ -18,20 +18,22 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include <stdbool.h>
+#include <stdint.h>
 
+#include "platform.h"
+
+#ifdef USE_MCO
+
+#include "drivers/io.h"
 #include "pg/pg.h"
+#include "pg/pg_ids.h"
+#include "pg/mco.h"
 
-#include "rx/rx_spi.h"
+PG_REGISTER_WITH_RESET_TEMPLATE(mcoConfig_t, mcoConfig, PG_MCO_CONFIG, 0);
 
-uint16_t cc2500getRssiDbm(void);
-void cc2500setRssiDbm(uint8_t value);
-bool cc2500getGdo(void);
-#if defined(USE_RX_CC2500_SPI_PA_LNA) && defined(USE_RX_CC2500_SPI_DIVERSITY)
-void cc2500switchAntennae(void);
-#endif
-#if defined(USE_RX_CC2500_SPI_PA_LNA)
-void cc2500TxEnable(void);
-void cc2500TxDisable(void);
-#endif
-bool cc2500SpiInit(void);
+PG_RESET_TEMPLATE(mcoConfig_t, mcoConfig,
+    .enabled[0] = 0,
+    .enabled[1] = 0,
+);
+#endif // USE_MCO
