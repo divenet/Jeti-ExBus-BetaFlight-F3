@@ -72,6 +72,7 @@
 #include "pg/flash.h"
 #include "pg/gyrodev.h"
 #include "pg/max7456.h"
+#include "pg/mco.h"
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 #include "pg/pinio.h"
@@ -651,6 +652,7 @@ const clivalue_t valueTable[] = {
 #ifdef USE_RX_SPI
     { "rx_spi_protocol",            VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_RX_SPI }, PG_RX_SPI_CONFIG, offsetof(rxSpiConfig_t, rx_spi_protocol) },
     { "rx_spi_bus",                 VAR_UINT8   | MASTER_VALUE, .config.minmax = { 0, SPIDEV_COUNT }, PG_RX_SPI_CONFIG, offsetof(rxSpiConfig_t, spibus) },
+    { "rx_spi_led_inversion",       VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_RX_SPI_CONFIG, offsetof(rxSpiConfig_t, ledInversion) },
 #endif
 
 // PG_ADC_CONFIG
@@ -970,7 +972,7 @@ const clivalue_t valueTable[] = {
     // Set to $size_of_battery to get a percentage of battery used.
     { "mavlink_mah_as_heading_divisor", VAR_UINT16 | MASTER_VALUE, .config.minmax = { 0, 30000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_mah_as_heading_divisor) },
 #endif
-    { "telemetry_disabled_sensors", VAR_UINT32 | MASTER_VALUE, .config.minmax = { 0, 15 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, disabledSensors)},
+    { "telemetry_disabled_sensors", VAR_UINT32 | MASTER_VALUE, .config.u32_max = SENSOR_ALL, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, disabledSensors)},
 #endif // USE_TELEMETRY
 
 // PG_LED_STRIP_CONFIG
@@ -1111,6 +1113,7 @@ const clivalue_t valueTable[] = {
 #endif
 
 // PG_SYSTEM_CONFIG
+    { "system_hse_mhz",             VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 30 }, PG_SYSTEM_CONFIG, offsetof(systemConfig_t, hseMhz) },
 #if defined(USE_TASK_STATISTICS)
     { "task_statistics",            VAR_INT8   | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_SYSTEM_CONFIG, offsetof(systemConfig_t, task_statistics) },
 #endif
@@ -1215,7 +1218,7 @@ const clivalue_t valueTable[] = {
     { "usb_msc_pin_pullup", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_USB_CONFIG, offsetof(usbDev_t, mscButtonUsePullup) },
 #endif
 // PG_FLASH_CONFIG
-#ifdef USE_FLASH
+#ifdef USE_FLASH_CHIP
     { "flash_spi_bus", VAR_UINT8 | MASTER_VALUE, .config.minmax = { 0, SPIDEV_COUNT }, PG_FLASH_CONFIG, offsetof(flashConfig_t, spiDevice) },
 #endif
 // RCDEVICE
@@ -1236,6 +1239,9 @@ const clivalue_t valueTable[] = {
     { "gyro_2_i2cBus",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 0, I2CDEV_COUNT }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, 1, i2cBus) },
     { "gyro_2_i2c_address", VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, I2C_ADDR7_MAX }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, 1, i2cAddress) },
     { "gyro_2_sensor_align", VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_ALIGNMENT }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, 1, align) },
+#endif
+#ifdef USE_MCO
+    { "mco2_on_pc9",    VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_MCO_CONFIG, offsetof(mcoConfig_t, enabled[1]) },
 #endif
 };
 
