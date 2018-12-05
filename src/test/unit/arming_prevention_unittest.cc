@@ -43,6 +43,7 @@ extern "C" {
     #include "sensors/acceleration.h"
     #include "sensors/gyro.h"
     #include "telemetry/telemetry.h"
+    #include "flight/gps_rescue.h"
 
     PG_REGISTER(accelerometerConfig_t, accelerometerConfig, PG_ACCELEROMETER_CONFIG, 0);
     PG_REGISTER(blackboxConfig_t, blackboxConfig, PG_BLACKBOX_CONFIG, 0);
@@ -69,6 +70,9 @@ extern "C" {
     bool cmsInMenu = false;
     float axisPID_P[3], axisPID_I[3], axisPID_D[3], axisPIDSum[3];
     rxRuntimeConfig_t rxRuntimeConfig = {};
+    uint16_t GPS_distanceToHome = 0;
+    int16_t GPS_directionToHome = 0;
+    acc_t acc = {};
 }
 
 uint32_t simulationFeatureFlags = 0;
@@ -612,6 +616,118 @@ TEST(ArmingPreventionTest, WhenUsingSwitched3DModeThenNormalThrottleArmingCondit
     EXPECT_EQ(0, getArmingDisableFlags());
 }
 
+TEST(ArmingPreventionTest, Rescue)
+{
+    // given
+    simulationFeatureFlags = 0;
+    simulationTime = 0;
+    gyroCalibDone = true;
+
+    // and
+    modeActivationConditionsMutable(0)->auxChannelIndex = 0;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    modeActivationConditionsMutable(1)->auxChannelIndex = 1;
+    modeActivationConditionsMutable(1)->modeId = BOXGPSRESCUE;
+    modeActivationConditionsMutable(1)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(1)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    useRcControlsConfig(NULL);
+
+    // and
+    rxConfigMutable()->mincheck = 1050;
+
+    // given
+    rcData[THROTTLE] = 1000;
+    rcData[AUX1] = 1000;
+    rcData[AUX2] = 1800; // Start out with rescue enabled
+    ENABLE_STATE(SMALL_ANGLE);
+
+    // when
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_TRUE(isArmingDisabled());
+    EXPECT_EQ(ARMING_DISABLED_RESC, getArmingDisableFlags());
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+
+    // given
+    // arm
+    rcData[AUX1] = 1800;
+
+    // when
+    tryArm();
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_TRUE(isArmingDisabled());
+    EXPECT_EQ(ARMING_DISABLED_ARM_SWITCH|ARMING_DISABLED_RESC, getArmingDisableFlags());
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+
+    // given
+    // disarm
+    rcData[AUX1] = 1000;
+
+    // when
+    disarm();
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_TRUE(isArmingDisabled());
+    EXPECT_EQ(ARMING_DISABLED_RESC, getArmingDisableFlags());
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+
+    // given
+    // disable Rescue
+    rcData[AUX2] = 1000;
+
+    // when
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_FALSE(isArmingDisabled());
+    EXPECT_EQ(0, getArmingDisableFlags());
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+
+    // given
+    // arm
+    rcData[AUX1] = 1800;
+
+    // when
+    tryArm();
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_TRUE(ARMING_FLAG(ARMED));
+    EXPECT_FALSE(isArmingDisabled());
+    EXPECT_EQ(0, getArmingDisableFlags());
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+
+    // given
+    // disarm
+    rcData[AUX1] = 1000;
+
+    // when
+    disarm();
+    updateActivatedModes();
+    updateArmingStatus();
+
+    // expect
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
+    EXPECT_FALSE(isArmingDisabled());
+    EXPECT_EQ(0, getArmingDisableFlags());
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
+}
+
 TEST(ArmingPreventionTest, ParalyzeOnAtBoot)
 {
     // given
@@ -852,4 +968,10 @@ extern "C" {
     bool usbVcpIsConnected(void) { return false; }
     void pidSetAntiGravityState(bool) {}
     void osdSuppressStats(bool) {}
+    float scaleRangef(float, float, float, float, float) { return 0.0f; }
+    bool crashRecoveryModeActive(void) { return false; }
+    int32_t getEstimatedAltitudeCm(void) { return 0; }
+    bool gpsIsHealthy() { return false; }
+    bool isAltitudeOffset(void) { return false; }
+    float getCosTiltAngle(void) { return 0.0f; }
 }

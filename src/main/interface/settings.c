@@ -382,11 +382,8 @@ static const char * const lookupTableRcSmoothingDerivativeType[] = {
 #endif // USE_RC_SMOOTHING_FILTER
 
 #ifdef USE_GYRO_DATA_ANALYSE
-static const char * const lookupTableDynamicFftLocation[] = {
-    "BEFORE_STATIC_FILTERS", "AFTER_STATIC_FILTERS"
-};
 static const char * const lookupTableDynamicFilterRange[] = {
-    "HIGH", "MEDIUM", "LOW"
+    "HIGH", "MEDIUM", "LOW", "AUTO"
 };
 #endif // USE_GYRO_DATA_ANALYSE
 
@@ -504,7 +501,6 @@ const lookupTableEntry_t lookupTables[] = {
     LOOKUP_TABLE_ENTRY(lookupTableRcSmoothingDerivativeType),
 #endif // USE_RC_SMOOTHING_FILTER
 #ifdef USE_GYRO_DATA_ANALYSE
-    LOOKUP_TABLE_ENTRY(lookupTableDynamicFftLocation),
     LOOKUP_TABLE_ENTRY(lookupTableDynamicFilterRange),
 #endif // USE_GYRO_DATA_ANALYSE
 #ifdef USE_VTX_COMMON
@@ -565,15 +561,16 @@ const clivalue_t valueTable[] = {
     { "gyro_to_use",                VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GYRO }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, gyro_to_use) },
 #endif
 #if defined(USE_GYRO_DATA_ANALYSE)
-    { "dyn_fft_location",           VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_DYNAMIC_FFT_LOCATION }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_fft_location) },
-    { "dyn_filter_width_percent",   VAR_UINT8  | MASTER_VALUE, .config.minmax = { 1, 99 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_filter_width_percent) },
-    { "dyn_filter_range",           VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_DYNAMIC_FILTER_RANGE }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_filter_range) },
+    { "dyn_notch_range",           VAR_UINT8   | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_DYNAMIC_FILTER_RANGE }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_notch_range) },
+    { "dyn_notch_width_percent",   VAR_UINT8   | MASTER_VALUE, .config.minmax = { 0, 20 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_notch_width_percent) },
+    { "dyn_notch_q",               VAR_UINT16  | MASTER_VALUE, .config.minmax = { 1, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_notch_q) },
+    { "dyn_notch_min_hz",          VAR_UINT16  | MASTER_VALUE, .config.minmax = { 1, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_notch_min_hz) },
 #endif
 #ifdef USE_DYN_LPF
+    { "dyn_lpf_gyro_min_hz",        VAR_UINT16 | MASTER_VALUE, .config.minmax = { 0, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_lpf_gyro_min_hz) },
     { "dyn_lpf_gyro_max_hz",        VAR_UINT16 | MASTER_VALUE, .config.minmax = { 0, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_lpf_gyro_max_hz) },
-    { "dyn_lpf_gyro_idle",          VAR_UINT8  | MASTER_VALUE, .config.minmax = { 0, 100 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_lpf_gyro_idle) },
+    { "dyn_lpf_dterm_min_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmax = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_min_hz) },
     { "dyn_lpf_dterm_max_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmax = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_max_hz) },
-    { "dyn_lpf_dterm_idle",         VAR_UINT8  | PROFILE_VALUE, .config.minmax = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_idle) },
 #endif
 
 // PG_ACCELEROMETER_CONFIG
@@ -1010,6 +1007,9 @@ const clivalue_t valueTable[] = {
 #ifdef USE_ADC_INTERNAL
     { "osd_warn_core_temp",         VAR_UINT16  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_WARNING_CORE_TEMPERATURE, PG_OSD_CONFIG, offsetof(osdConfig_t, enabledWarnings)},
 #endif
+#ifdef USE_RC_SMOOTHING_FILTER
+    { "osd_warn_rc_smoothing",      VAR_UINT16  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_WARNING_RC_SMOOTHING,     PG_OSD_CONFIG, offsetof(osdConfig_t, enabledWarnings)},
+#endif
     { "osd_warn_fail_safe",         VAR_UINT16  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_WARNING_FAIL_SAFE,   PG_OSD_CONFIG, offsetof(osdConfig_t, enabledWarnings)},
 #ifdef USE_LAUNCH_CONTROL
     { "osd_warn_launch_control",    VAR_UINT16  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_WARNING_LAUNCH_CONTROL,   PG_OSD_CONFIG, offsetof(osdConfig_t, enabledWarnings)},
@@ -1109,7 +1109,9 @@ const clivalue_t valueTable[] = {
     { "osd_stat_max_esc_rpm",       VAR_UINT32  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_STAT_MAX_ESC_RPM,     PG_OSD_CONFIG, offsetof(osdConfig_t, enabled_stats)},
     { "osd_stat_min_link_quality",  VAR_UINT32  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_STAT_MIN_LINK_QUALITY,PG_OSD_CONFIG, offsetof(osdConfig_t, enabled_stats)},
     { "osd_stat_total_dist",        VAR_UINT32  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_STAT_TOTAL_DISTANCE,  PG_OSD_CONFIG, offsetof(osdConfig_t, enabled_stats)},
-
+#ifdef USE_OSD_PROFILES
+    { "osd_profile",                VAR_UINT8  | MASTER_VALUE, .config.minmax = { 1, OSD_PROFILE_COUNT }, PG_OSD_CONFIG, offsetof(osdConfig_t, osdProfileIndex) },
+#endif
 #endif
 
 // PG_SYSTEM_CONFIG
