@@ -61,11 +61,8 @@
 #define USE_MAG_SPI_AK8963
 #define USE_MAG_LIS3MDL
 
-#define HMC5883_CS_PIN          PC15
-#define HMC5883_SPI_INSTANCE    SPI3
-
-#define AK8963_CS_PIN           PC15
-#define AK8963_SPI_INSTANCE     SPI3
+#define MAG_CS_PIN              PC15
+#define MAG_SPI_INSTANCE        SPI3
 
 #define MAG_AK8963_ALIGN        CW180_DEG_FLIP
 
@@ -75,11 +72,8 @@
 #define USE_BARO_BMP280
 #define USE_BARO_SPI_BMP280
 
-#define MS5611_CS_PIN           SPI3_NSS_PIN
-#define MS5611_SPI_INSTANCE     SPI3
-
-#define BMP280_CS_PIN           SPI3_NSS_PIN
-#define BMP280_SPI_INSTANCE     SPI3
+#define BARO_CS_PIN             SPI3_NSS_PIN
+#define BARO_SPI_INSTANCE       SPI3
 
 #define USE_SDCARD
 #define USE_SDCARD_SPI
