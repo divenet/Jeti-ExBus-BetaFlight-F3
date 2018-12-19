@@ -192,11 +192,11 @@
 #endif
 
 // Generate USE_SPI_GYRO or USE_I2C_GYRO
-#if defined(USE_GYRO_L3G4200D) || defined(USE_GYRO_L3GD20) || defined(USE_GYRO_MPU3050) || defined(USE_GYRO_MPU6000) || defined(USE_GYRO_MPU6050) || defined(USE_GYRO_MPU6500)
+#if defined(USE_GYRO_L3G4200D) || defined(USE_GYRO_MPU3050) || defined(USE_GYRO_MPU6000) || defined(USE_GYRO_MPU6050) || defined(USE_GYRO_MPU6500)
 #define USE_I2C_GYRO
 #endif
 
-#if defined(USE_GYRO_SPI_ICM20689) || defined(USE_GYRO_SPI_MPU6000) || defined(USE_GYRO_SPI_MPU6500) || defined(USE_GYRO_SPI_MPU9250)
+#if defined(USE_GYRO_SPI_ICM20689) || defined(USE_GYRO_SPI_MPU6000) || defined(USE_GYRO_SPI_MPU6500) || defined(USE_GYRO_SPI_MPU9250) || defined(USE_GYRO_L3GD20)
 #define USE_SPI_GYRO
 #endif
 
@@ -205,9 +205,11 @@
 #define USE_RX_XN297
 #endif
 
+#ifdef GENERIC_TARGET
+#define USE_CONFIGURATION_STATE
+
 // Setup crystal frequency for backward compatibility
 // Should be set to zero for generic targets and set with CLI variable set system_hse_value.
-#ifdef GENERIC_TARGET
 #define SYSTEM_HSE_VALUE 0
 #else
 #ifdef TARGET_XTAL_MHZ
@@ -215,11 +217,15 @@
 #else
 #define SYSTEM_HSE_VALUE (HSE_VALUE/1000000U)
 #endif
-#endif
+#endif // GENERIC_TARGET
 
 // Number of pins that needs pre-init
 #ifdef USE_SPI
 #ifndef SPI_PREINIT_COUNT
 #define SPI_PREINIT_COUNT 16 // 2 x 8 (GYROx2, BARO, MAG, MAX, FLASHx2, RX)
 #endif
+#endif
+
+#if (!defined(USE_FLASHFS) || !defined(USE_RTC_TIME) || !defined(USE_USB_MSC))
+#undef USE_PERSISTENT_MSC_RTC
 #endif
