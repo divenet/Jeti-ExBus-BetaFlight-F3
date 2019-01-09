@@ -102,6 +102,7 @@
 #include "sensors/esc_sensor.h"
 #include "sensors/gyro.h"
 #include "sensors/rangefinder.h"
+#include "sensors/rpm_filter.h"
 
 #include "telemetry/frsky_hub.h"
 #include "telemetry/ibus_shared.h"
@@ -227,6 +228,7 @@ static const char * const lookupTableRxSpi[] = {
     "INAV",
     "FRSKY_D",
     "FRSKY_X",
+    "FRSKY_X_LBT",
     "FLYSKY",
     "FLYSKY_2A",
     "KN",
@@ -957,6 +959,10 @@ const clivalue_t valueTable[] = {
     { "launch_control_gain",        VAR_UINT8 | PROFILE_VALUE,  .config.minmax = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, launchControlGain) },
 #endif
 
+#ifdef USE_THRUST_LINEARIZATION
+    { "thrust_linear",              VAR_UINT8 | MASTER_VALUE, .config.minmax = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, thrustLinearization) },
+#endif
+
 // PG_TELEMETRY_CONFIG
 #ifdef USE_TELEMETRY
     { "tlm_inverted",               VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_inverted) },
@@ -1298,6 +1304,15 @@ const clivalue_t valueTable[] = {
 // PG_TIMECONFIG
 #ifdef USE_RTC_TIME
     { "timezone_offset_minutes",  VAR_INT16 | MASTER_VALUE, .config.minmax = { TIMEZONE_OFFSET_MINUTES_MIN, TIMEZONE_OFFSET_MINUTES_MAX }, PG_TIME_CONFIG, offsetof(timeConfig_t, tz_offsetMinutes) },
+#endif
+
+#ifdef USE_RPM_FILTER
+    { "gyro_rpm_notch_harmonics",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 0, 3 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, gyro_rpm_notch_harmonics) },
+    { "gyro_rpm_notch_q",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 1, 100 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, gyro_rpm_notch_q) },
+    { "gyro_rpm_notch_min",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 50, 200 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, gyro_rpm_notch_min) },
+    { "dterm_rpm_notch_harmonics",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 0, 3 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, dterm_rpm_notch_harmonics) },
+    { "dterm_rpm_notch_q",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 1, 100 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, dterm_rpm_notch_q) },
+    { "dterm_rpm_notch_min",  VAR_UINT8 | MASTER_VALUE, .config.minmax = { 50, 200 }, PG_RPM_FILTER_CONFIG, offsetof(rpmFilterConfig_t, dterm_rpm_notch_min) },
 #endif
 };
 

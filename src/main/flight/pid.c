@@ -56,6 +56,7 @@
 #include "sensors/gyro.h"
 #include "sensors/acceleration.h"
 
+#include "sensors/rpm_filter.h"
 
 const char pidNames[] =
     "ROLL;"
@@ -114,7 +115,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 
 #define LAUNCH_CONTROL_YAW_ITERM_LIMIT 50 // yaw iterm windup limit when launch mode is "FULL" (all axes)
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, MAX_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 6);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, MAX_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 7);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -181,6 +182,7 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .launchControlAllowTriggerReset = true,
         .use_integrated_yaw = false,
         .integrated_yaw_relax = 200,
+        .thrustLinearization = 0,
     );
 #ifdef USE_DYN_LPF
     pidProfile->dterm_lowpass_hz = 150;
@@ -474,6 +476,12 @@ static FAST_RAM_ZERO_INIT int acroTrainerAxisState[2];  // only need roll and pi
 static FAST_RAM_ZERO_INIT float acroTrainerGain;
 #endif // USE_ACRO_TRAINER
 
+#ifdef USE_THRUST_LINEARIZATION
+FAST_RAM_ZERO_INIT float thrustLinearization;
+FAST_RAM_ZERO_INIT float thrustLinearizationReciprocal;
+FAST_RAM_ZERO_INIT float thrustLinearizationB;
+#endif
+
 void pidUpdateAntiGravityThrottleFilter(float throttle)
 {
     if (antiGravityMode == ANTI_GRAVITY_SMOOTH) {
@@ -597,6 +605,14 @@ void pidInitConfig(const pidProfile_t *pidProfile)
     useIntegratedYaw = pidProfile->use_integrated_yaw;
     integratedYawRelax = pidProfile->integrated_yaw_relax;
 #endif
+
+#ifdef USE_THRUST_LINEARIZATION
+    thrustLinearization = pidProfile->thrustLinearization / 100.0f;
+    if (thrustLinearization != 0.0f) {
+        thrustLinearizationReciprocal = 1.0f / thrustLinearization;
+        thrustLinearizationB = (1.0f - thrustLinearization) / (2.0f * thrustLinearization);
+    }
+#endif    
 }
 
 void pidInit(const pidProfile_t *pidProfile)
@@ -604,6 +620,9 @@ void pidInit(const pidProfile_t *pidProfile)
     pidSetTargetLooptime(gyro.targetLooptime * pidConfig()->pid_process_denom); // Initialize pid looptime
     pidInitFilters(pidProfile);
     pidInitConfig(pidProfile);
+#ifdef USE_RPM_FILTER
+    rpmFilterInit(rpmFilterConfig());
+#endif
 }
 
 #ifdef USE_ACRO_TRAINER
@@ -613,6 +632,27 @@ void pidAcroTrainerInit(void)
     acroTrainerAxisState[FD_PITCH] = 0;
 }
 #endif // USE_ACRO_TRAINER
+
+#ifdef USE_THRUST_LINEARIZATION
+float pidCompensateThrustLinearization(float throttle)
+{
+    if (thrustLinearization != 0.0f) {
+        throttle = throttle * (throttle * thrustLinearization + 1.0f - thrustLinearization);
+    }
+    return throttle;
+}
+
+float pidApplyThrustLinearization(float motorOutput)
+{
+    if (thrustLinearization != 0.0f) {
+        if (motorOutput > 0.0f) {
+            motorOutput = sqrtf(motorOutput * thrustLinearizationReciprocal +
+                                thrustLinearizationB * thrustLinearizationB) - thrustLinearizationB;
+        }
+    }
+    return motorOutput;
+}
+#endif
 
 void pidCopyProfile(uint8_t dstPidProfileIndex, uint8_t srcPidProfileIndex)
 {
@@ -1103,12 +1143,20 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, const rollAndPitchT
     // Precalculate gyro deta for D-term here, this allows loop unrolling
     float gyroRateDterm[XYZ_AXIS_COUNT];
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
-        gyroRateDterm[axis] = dtermNotchApplyFn((filter_t *) &dtermNotch[axis], gyro.gyroADCf[axis]);
+        gyroRateDterm[axis] = gyro.gyroADCf[axis];
+#ifdef USE_RPM_FILTER
+        gyroRateDterm[axis] = rpmFilterDterm(axis,gyroRateDterm[axis]);
+#endif
+        gyroRateDterm[axis] = dtermNotchApplyFn((filter_t *) &dtermNotch[axis], gyroRateDterm[axis]);
         gyroRateDterm[axis] = dtermLowpassApplyFn((filter_t *) &dtermLowpass[axis], gyroRateDterm[axis]);
         gyroRateDterm[axis] = dtermLowpass2ApplyFn((filter_t *) &dtermLowpass2[axis], gyroRateDterm[axis]);
     }
 
     rotateItermAndAxisError();
+#ifdef USE_RPM_FILTER
+    rpmFilterUpdate();
+#endif
+
 
     // ----------PID controller----------
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {

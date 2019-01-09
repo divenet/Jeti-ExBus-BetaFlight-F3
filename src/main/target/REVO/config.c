@@ -18,14 +18,24 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include <stdbool.h>
+#include <stdint.h>
 
+#include "platform.h"
+#include "drivers/serial.h"
+#include "pg/rx.h"
+#include "pg/piniobox.h"
 #include "rx/rx.h"
-#include "rx/rx_spi.h"
+#include "telemetry/telemetry.h"
+#include "fc/config.h"
 
-#define RC_CHANNEL_COUNT_FRSKY_X 16
+#ifdef USE_TARGET_CONFIG
+#include "pg/pg.h"
 
-void frSkyXSetRcData(uint16_t *rcData, const uint8_t *payload);
-
-void frSkyXInit(const rx_spi_protocol_e spiProtocol);
-rx_spi_received_e frSkyXHandlePacket(uint8_t * const packet, uint8_t * const protocolState);
+void targetConfiguration(void)
+{
+    rxConfigMutable()->halfDuplex = true;
+    pinioBoxConfigMutable()->permanentId[0] = 40;
+    pinioBoxConfigMutable()->permanentId[1] = 41;
+}
+#endif
