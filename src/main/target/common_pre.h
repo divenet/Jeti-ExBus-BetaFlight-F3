@@ -140,7 +140,7 @@
 #define USE_PPM
 //#define USE_PWM
 #define USE_SERIAL_RX
-<<<<<<< HEAD
+
 //#define USE_SERIALRX_CRSF       // Team Black Sheep Crossfire protocol
 //#define USE_SERIALRX_IBUS       // FlySky and Turnigy receivers
 //#define USE_SERIALRX_SBUS       // Frsky and Futaba receivers
@@ -151,15 +151,6 @@
 #define USE_SERIALRX_JETIEXBUS
 #define USE_ABSOLUTE_CONTROL
 #define USE_LED_STRIP
-=======
-#define USE_SERIALRX_CRSF       // Team Black Sheep Crossfire protocol
-#define USE_SERIALRX_IBUS       // FlySky and Turnigy receivers
-#define USE_SERIALRX_SBUS       // Frsky and Futaba receivers
-#define USE_SERIALRX_SPEKTRUM   // SRXL, DSM2 and DSMX protocol
-#define USE_SERIALRX_SUMD       // Graupner Hott protocol
-#define USE_SERIALRX_SUMH       // Graupner legacy protocol
-#define USE_SERIALRX_XBUS       // JR
->>>>>>> upstream/master
 
 #if (FLASH_SIZE > 64)
 #define MAX_PROFILE_COUNT 3
@@ -264,4 +255,3 @@
 #define USE_CMS_FAILSAFE_MENU
 #define USE_SMART_FEEDFORWARD
 #endif
-
