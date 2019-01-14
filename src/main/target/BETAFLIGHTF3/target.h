@@ -28,19 +28,14 @@
 //#undef USE_GYRO_OVERFLOW_CHECK
 //#undef USE_GYRO_LPF2
 
-<<<<<<< HEAD
 //#undef USE_ITERM_RELAX
 //#undef USE_RC_SMOOTHING_FILTER
-=======
+
 //#undef USE_MSP_DISPLAYPORT
 //#undef USE_MSP_OVER_TELEMETRY
 
 //#undef USE_DYN_LPF
 //#undef USE_D_CUT
-
-#undef USE_ITERM_RELAX
-#undef USE_RC_SMOOTHING_FILTER
->>>>>>> upstream/master
 
 #undef USE_HUFFMAN
 #undef USE_PINIO
