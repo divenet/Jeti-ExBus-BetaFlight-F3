@@ -382,6 +382,8 @@ static void serializeDataflashReadReply(sbuf_t *dst, uint32_t address, const uin
 #endif
 
     if (compressionMethod == NO_COMPRESSION) {
+
+        uint16_t *readLenPtr = (uint16_t *)sbufPtr(dst);
         if (!useLegacyFormat) {
             // new format supports variable read lengths
             sbufWriteU16(dst, readLen);
@@ -389,6 +391,11 @@ static void serializeDataflashReadReply(sbuf_t *dst, uint32_t address, const uin
         }
 
         const int bytesRead = flashfsReadAbs(address, sbufPtr(dst), readLen);
+
+        if (!useLegacyFormat) {
+            // update the 'read length' with the actual amount read from flash.
+            *readLenPtr = bytesRead;
+        }
 
         sbufAdvance(dst, bytesRead);
 
@@ -2009,7 +2016,7 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
                 const uint8_t newChannel = (newFrequency % 8) + 1;
                 vtxSettingsConfigMutable()->band = newBand;
                 vtxSettingsConfigMutable()->channel = newChannel;
-                vtxSettingsConfigMutable()->freq = vtx58_Bandchan2Freq(newBand, newChannel);
+                vtxSettingsConfigMutable()->freq = vtxCommonLookupFrequency(vtxDevice, newBand, newChannel);
             } else if (newFrequency <= VTX_SETTINGS_MAX_FREQUENCY_MHZ) { // Value is frequency in MHz
                 vtxSettingsConfigMutable()->band = 0;
                 vtxSettingsConfigMutable()->channel = 0;
