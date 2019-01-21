@@ -24,6 +24,7 @@
 
 #define TARGET_BOARD_IDENTIFIER "BFF3"
 
+<<<<<<< HEAD
 // Removed to make the firmware fit into flash (in descending order of priority):
 //#undef USE_GYRO_OVERFLOW_CHECK
 //#undef USE_GYRO_LPF2
@@ -55,6 +56,8 @@
 #undef USE_ESC_SENSOR_INFO
 
 
+=======
+>>>>>>> upstream/master
 #define USE_BEEPER
 #define BEEPER_PIN              PC15
 #define BEEPER_INVERTED

@@ -80,6 +80,7 @@ static FAST_RAM_ZERO_INIT float antiGravityThrottleHpf;
 static FAST_RAM_ZERO_INIT uint16_t itermAcceleratorGain;
 static FAST_RAM float antiGravityOsdCutoff = 1.0f;
 static FAST_RAM_ZERO_INIT bool antiGravityEnabled;
+static FAST_RAM_ZERO_INIT bool zeroThrottleItermReset;
 
 PG_REGISTER_WITH_RESET_TEMPLATE(pidConfig_t, pidConfig, PG_PID_CONFIG, 2);
 
@@ -319,14 +320,18 @@ void pidInitFilters(const pidProfile_t *pidProfile)
     }
 
     //1st Dterm Lowpass Filter
-    if (pidProfile->dterm_lowpass_hz == 0 || pidProfile->dterm_lowpass_hz > pidFrequencyNyquist) {
-        dtermLowpassApplyFn = nullFilterApply;
-    } else {
+    uint16_t dterm_lowpass_hz = pidProfile->dterm_lowpass_hz;
+
+#ifdef USE_DYN_LPF
+    dterm_lowpass_hz = MAX(pidProfile->dterm_lowpass_hz, pidProfile->dyn_lpf_dterm_min_hz);
+#endif
+
+    if (dterm_lowpass_hz > 0 && dterm_lowpass_hz < pidFrequencyNyquist) {
         switch (pidProfile->dterm_filter_type) {
         case FILTER_PT1:
             dtermLowpassApplyFn = (filterApplyFnPtr)pt1FilterApply;
             for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                pt1FilterInit(&dtermLowpass[axis].pt1Filter, pt1FilterGain(pidProfile->dterm_lowpass_hz, dT));
+                pt1FilterInit(&dtermLowpass[axis].pt1Filter, pt1FilterGain(dterm_lowpass_hz, dT));
             }
             break;
         case FILTER_BIQUAD:
@@ -336,13 +341,15 @@ void pidInitFilters(const pidProfile_t *pidProfile)
             dtermLowpassApplyFn = (filterApplyFnPtr)biquadFilterApply;
 #endif
             for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                biquadFilterInitLPF(&dtermLowpass[axis].biquadFilter, pidProfile->dterm_lowpass_hz, targetPidLooptime);
+                biquadFilterInitLPF(&dtermLowpass[axis].biquadFilter, dterm_lowpass_hz, targetPidLooptime);
             }
             break;
         default:
             dtermLowpassApplyFn = nullFilterApply;
             break;
         }
+    } else {
+        dtermLowpassApplyFn = nullFilterApply;
     }
 
     //2nd Dterm Lowpass Filter
@@ -613,7 +620,7 @@ void pidInitConfig(const pidProfile_t *pidProfile)
 #endif
 
 #ifdef USE_DYN_LPF
-    if (pidProfile->dyn_lpf_dterm_min_hz > 0 && pidProfile->dyn_lpf_dterm_max_hz > pidProfile->dyn_lpf_dterm_min_hz) {
+    if (pidProfile->dyn_lpf_dterm_min_hz > 0) {
         switch (pidProfile->dterm_filter_type) {
         case FILTER_PT1:
             dynLpfFilter = DYN_LPF_PT1;
@@ -795,7 +802,7 @@ static float accelerationLimit(int axis, float currentPidSetpoint)
     static float previousSetpoint[XYZ_AXIS_COUNT];
     const float currentVelocity = currentPidSetpoint - previousSetpoint[axis];
 
-    if (ABS(currentVelocity) > maxVelocity[axis]) {
+    if (fabsf(currentVelocity) > maxVelocity[axis]) {
         currentPidSetpoint = (currentVelocity > 0) ? previousSetpoint[axis] + maxVelocity[axis] : previousSetpoint[axis] - maxVelocity[axis];
     }
 
@@ -829,9 +836,9 @@ static void handleCrashRecovery(
         pidData[axis].I = 0.0f;
         if (cmpTimeUs(currentTimeUs, crashDetectedAtUs) > crashTimeLimitUs
             || (getMotorMixRange() < 1.0f
-                   && ABS(gyro.gyroADCf[FD_ROLL]) < crashRecoveryRate
-                   && ABS(gyro.gyroADCf[FD_PITCH]) < crashRecoveryRate
-                   && ABS(gyro.gyroADCf[FD_YAW]) < crashRecoveryRate)) {
+                   && fabsf(gyro.gyroADCf[FD_ROLL]) < crashRecoveryRate
+                   && fabsf(gyro.gyroADCf[FD_PITCH]) < crashRecoveryRate
+                   && fabsf(gyro.gyroADCf[FD_YAW]) < crashRecoveryRate)) {
             if (sensors(SENSOR_ACC)) {
                 // check aircraft nearly level
                 if (ABS(attitude.raw[FD_ROLL] - angleTrim->raw[FD_ROLL]) < crashRecoveryAngleDeciDegrees
@@ -856,14 +863,14 @@ static void detectAndSetCrashRecovery(
     if ((crash_recovery || FLIGHT_MODE(GPS_RESCUE_MODE)) && !gyroOverflowDetected()) {
         if (ARMING_FLAG(ARMED)) {
             if (getMotorMixRange() >= 1.0f && !inCrashRecoveryMode
-                && ABS(delta) > crashDtermThreshold
-                && ABS(errorRate) > crashGyroThreshold
-                && ABS(getSetpointRate(axis)) < crashSetpointThreshold) {
+                && fabsf(delta) > crashDtermThreshold
+                && fabsf(errorRate) > crashGyroThreshold
+                && fabsf(getSetpointRate(axis)) < crashSetpointThreshold) {
                 inCrashRecoveryMode = true;
                 crashDetectedAtUs = currentTimeUs;
             }
-            if (inCrashRecoveryMode && cmpTimeUs(currentTimeUs, crashDetectedAtUs) < crashTimeDelayUs && (ABS(errorRate) < crashGyroThreshold
-                || ABS(getSetpointRate(axis)) > crashSetpointThreshold)) {
+            if (inCrashRecoveryMode && cmpTimeUs(currentTimeUs, crashDetectedAtUs) < crashTimeDelayUs && (fabsf(errorRate) < crashGyroThreshold
+                || fabsf(getSetpointRate(axis)) > crashSetpointThreshold)) {
                 inCrashRecoveryMode = false;
                 BEEP_OFF;
             }
@@ -1020,7 +1027,7 @@ void FAST_CODE applySmartFeedforward(int axis)
 {
     if (smartFeedforward) {
         if (pidData[axis].P * pidData[axis].F > 0) {
-            if (ABS(pidData[axis].F) > ABS(pidData[axis].P)) {
+            if (fabsf(pidData[axis].F) > fabsf(pidData[axis].P)) {
                 pidData[axis].P = 0;
             } else {
                 pidData[axis].F = 0;
@@ -1392,6 +1399,8 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, const rollAndPitchT
 
             pidData[axis].Sum = 0;
         }
+    } else if (zeroThrottleItermReset) {
+        pidResetIterm();
     }
 }
 
@@ -1444,3 +1453,8 @@ void dynLpfDTermUpdate(float throttle)
     }
 }
 #endif
+
+void pidSetItermReset(bool enabled)
+{
+    zeroThrottleItermReset = enabled;
+}
