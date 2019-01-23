@@ -58,10 +58,6 @@ extern const char * const osdTimerSourceNames[OSD_NUM_TIMER_TYPES];
 #define OSD_X(x)      (x & OSD_POSITION_XY_MASK)
 #define OSD_Y(x)      ((x >> OSD_POSITION_BITS) & OSD_POSITION_XY_MASK)
 
-// Stick overlay size
-#define OSD_STICK_OVERLAY_WIDTH 7
-#define OSD_STICK_OVERLAY_HEIGHT 7
-
 // Timer configuration
 // Stored as 15[alarm:8][precision:4][source:4]0
 #define OSD_TIMER(src, prec, alarm) ((src & 0x0F) | ((prec & 0x0F) << 4) | ((alarm & 0xFF ) << 8))
@@ -129,14 +125,14 @@ typedef enum {
 } osd_items_e;
 
 // *** IMPORTANT ***
-// The order of the OSD stats enumeration *must* match the order they're displayed on-screen
-// This is because the fields are presented in the configurator in the order of the enumeration
-// and we want the configuration order to match the on-screen display order.
-// Changes to the stats display order *must* be implemented in the configurator otherwise the
-// stats selections will not be populated correctly and the settings will become corrupted.
-//
-// Also - if the stats are reordered then the PR version must be incremented. Otherwise there
+// If the stats enumeration is reordered then the PR version must be incremented. Otherwise there
 // is no indication that the stored config must be reset and the bitmapped values will be incorrect.
+//
+// The stats display order was previously required to match the enumeration definition so it matched
+// the order shown in the configurator. However, to allow reordering this screen without breaking the
+// compatibility, this requirement has been relaxed to a best effort approach. Reordering the elements
+// on the stats screen will have to be more beneficial than the hassle of not matching exactly to the
+// configurator list.
 typedef enum {
     OSD_STAT_RTC_DATE_TIME,
     OSD_STAT_TIMER_1,

@@ -106,6 +106,10 @@
 #define VIDEO_BUFFER_CHARS_PAL    480
 #define FULL_CIRCLE 360
 
+// Stick overlay size
+#define OSD_STICK_OVERLAY_WIDTH 7
+#define OSD_STICK_OVERLAY_HEIGHT 7
+
 #define STICK_OVERLAY_HORIZONTAL_CHAR   '-'
 #define STICK_OVERLAY_VERTICAL_CHAR     '|'
 #define STICK_OVERLAY_CROSS_CHAR        '+'
@@ -1335,8 +1339,8 @@ static void osdDrawStickOverlayCursor(osd_items_e osd_item)
         horizontal_channel = radioModes[osdConfig()->overlay_radio_mode-1].right_horizontal;
     }
 
-    uint8_t x_pos =  (uint8_t)scaleRange(constrain(rcData[horizontal_channel], PWM_RANGE_MIN, PWM_RANGE_MAX), PWM_RANGE_MIN, PWM_RANGE_MAX, 0, OSD_STICK_OVERLAY_WIDTH);
-    uint8_t y_pos =  (uint8_t)scaleRange(PWM_RANGE_MAX - constrain(rcData[vertical_channel], PWM_RANGE_MIN, PWM_RANGE_MAX), PWM_RANGE_MIN, PWM_RANGE_MAX, 0, OSD_STICK_OVERLAY_HEIGHT) + OSD_STICK_OVERLAY_HEIGHT - 1;
+    uint8_t x_pos =  (uint8_t)constrain(scaleRange(rcData[horizontal_channel], PWM_RANGE_MIN, PWM_RANGE_MAX, 0, OSD_STICK_OVERLAY_WIDTH), 0, OSD_STICK_OVERLAY_WIDTH - 1);
+    uint8_t y_pos =  OSD_STICK_OVERLAY_HEIGHT - 1 - (uint8_t)constrain(scaleRange(rcData[vertical_channel], PWM_RANGE_MIN, PWM_RANGE_MAX, 0, OSD_STICK_OVERLAY_HEIGHT), 0, OSD_STICK_OVERLAY_HEIGHT - 1);
 
     osdDrawStickOverlayPos(osd_item, x_pos, y_pos);
 }
@@ -1750,12 +1754,11 @@ static bool isSomeStatEnabled(void)
 }
 
 // *** IMPORTANT ***
-// The order of the OSD stats as displayed on-screen must match the osd_stats_e enumeration.
-// This is because the fields are presented in the configurator in the order of the enumeration
-// and we want the configuration order to match the on-screen display order.  If you change the
-// display order you *must* update the osd_stats_e enumeration to match. Additionally the
-// changes to the stats display order *must* be implemented in the configurator otherwise the
-// stats selections will not be populated correctly and the settings will become corrupted.
+// The stats display order was previously required to match the enumeration definition so it matched
+// the order shown in the configurator. However, to allow reordering this screen without breaking the
+// compatibility, this requirement has been relaxed to a best effort approach. Reordering the elements
+// on the stats screen will have to be more beneficial than the hassle of not matching exactly to the
+// configurator list.
 
 static void osdShowStats(uint16_t endBatteryVoltage)
 {
@@ -1787,15 +1790,28 @@ static void osdShowStats(uint16_t endBatteryVoltage)
         osdDisplayStatisticLabel(top++, osdTimerSourceNames[OSD_TIMER_SRC(osdConfig()->timers[OSD_TIMER_2])], buff);
     }
 
-#ifdef USE_GPS
-    if (osdStatGetState(OSD_STAT_MAX_SPEED) && featureIsEnabled(FEATURE_GPS)) {
-        itoa(stats.max_speed, buff, 10);    
-        osdDisplayStatisticLabel(top++, "MAX SPEED", buff);
+    if (osdStatGetState(OSD_STAT_MAX_ALTITUDE)) {
+        osdFormatAltitudeString(buff, stats.max_altitude);
+        osdDisplayStatisticLabel(top++, "MAX ALTITUDE", buff);
     }
 
-    if (osdStatGetState(OSD_STAT_MAX_DISTANCE) && featureIsEnabled(FEATURE_GPS)) {
-        tfp_sprintf(buff, "%d%c", osdGetMetersToSelectedUnit(stats.max_distance), osdGetMetersToSelectedUnitSymbol());
-        osdDisplayStatisticLabel(top++, "MAX DISTANCE", buff);
+#ifdef USE_GPS
+    if (featureIsEnabled(FEATURE_GPS)) {
+        if (osdStatGetState(OSD_STAT_MAX_SPEED)) {
+            itoa(stats.max_speed, buff, 10);    
+            osdDisplayStatisticLabel(top++, "MAX SPEED", buff);
+        }
+
+        if (osdStatGetState(OSD_STAT_MAX_DISTANCE)) {
+            tfp_sprintf(buff, "%d%c", osdGetMetersToSelectedUnit(stats.max_distance), osdGetMetersToSelectedUnitSymbol());
+            osdDisplayStatisticLabel(top++, "MAX DISTANCE", buff);
+        }
+
+        if (osdStatGetState(OSD_STAT_FLIGHT_DISTANCE)) {
+            const uint32_t distanceFlown = GPS_distanceFlownInCm / 100;
+            tfp_sprintf(buff, "%d%c", osdGetMetersToSelectedUnit(distanceFlown), osdGetMetersToSelectedUnitSymbol());
+            osdDisplayStatisticLabel(top++, "FLIGHT DISTANCE", buff);
+        }
     }
 #endif
 
@@ -1831,11 +1847,6 @@ static void osdShowStats(uint16_t endBatteryVoltage)
             tfp_sprintf(buff, "%d%c", getMAhDrawn(), SYM_MAH);
             osdDisplayStatisticLabel(top++, "USED MAH", buff);
         }
-    }
-
-    if (osdStatGetState(OSD_STAT_MAX_ALTITUDE)) {
-        osdFormatAltitudeString(buff, stats.max_altitude);
-        osdDisplayStatisticLabel(top++, "MAX ALTITUDE", buff);
     }
 
 #ifdef USE_BLACKBOX
@@ -1876,14 +1887,6 @@ static void osdShowStats(uint16_t endBatteryVoltage)
     }
 #endif
 
-#ifdef USE_GPS
-    if (osdStatGetState(OSD_STAT_FLIGHT_DISTANCE) && featureIsEnabled(FEATURE_GPS)) {
-        const uint32_t distanceFlown = GPS_distanceFlownInCm / 100;
-        tfp_sprintf(buff, "%d%c", osdGetMetersToSelectedUnit(distanceFlown), osdGetMetersToSelectedUnitSymbol());
-        osdDisplayStatisticLabel(top++, "FLIGHT DISTANCE", buff);
-    }
-#endif
-
 #if defined(USE_GYRO_DATA_ANALYSE)
     if (osdStatGetState(OSD_STAT_MAX_FFT) && featureIsEnabled(FEATURE_DYNAMIC_FILTER)) {
         int value = getMaxFFT();
@@ -1895,7 +1898,6 @@ static void osdShowStats(uint16_t endBatteryVoltage)
         }
     }
 #endif
-
 }
 
 static void osdShowArmed(void)
@@ -2042,15 +2044,6 @@ void osdUpdate(timeUs_t currentTimeUs)
         displayDrawScreen(osdDisplayPort);
     }
     ++counter;
-
-#ifdef USE_CMS
-    // do not allow ARM if we are in menu
-    if (displayIsGrabbed(osdDisplayPort)) {
-        setArmingDisabled(ARMING_DISABLED_OSD_MENU);
-    } else {
-        unsetArmingDisabled(ARMING_DISABLED_OSD_MENU);
-    }
-#endif
 }
 
 void osdSuppressStats(bool flag)
