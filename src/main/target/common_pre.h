@@ -183,19 +183,26 @@
 #define USE_SERIAL_4WAY_BLHELI_BOOTLOADER  //TODO: Fix this conditional.
 #define USE_CMS //TODO: Fix this conditional.
 
-#if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 10))
+#if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 12))
 #define USE_CMS
-#define USE_CAMERA_CONTROL
 #define USE_MSP_DISPLAYPORT
 #define USE_MSP_OVER_TELEMETRY
-#define USE_RCDEVICE
-#define USE_VIRTUAL_CURRENT_METER
+#define USE_LED_STRIP
+#endif
+
+#if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 11))
 #define USE_VTX_COMMON
 #define USE_VTX_CONTROL
 #define USE_VTX_SMARTAUDIO
 #define USE_VTX_TRAMP
+#endif
+
+#if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 10))
+#define USE_VIRTUAL_CURRENT_METER
+#define USE_CAMERA_CONTROL
 #define USE_ESC_SENSOR
 #define USE_SERIAL_4WAY_BLHELI_BOOTLOADER
+#define USE_RCDEVICE
 #endif
 
 #if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 9))
@@ -282,7 +289,11 @@
 #define USE_SIGNATURE
 
 #define USE_HOTT_TEXTMODE
+<<<<<<< HEAD
 
+=======
+#define USE_LED_STRIP_STATUS_MODE
+>>>>>>> upstream/master
 #define USE_VARIO
 #define USE_RX_LINK_QUALITY_INFO
 #define USE_ESC_SENSOR_TELEMETRY
