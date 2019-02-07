@@ -140,12 +140,14 @@ static void activateConfig(void)
     rcControlsInit();
 
     failsafeReset();
+#ifdef USE_ACC
     setAccelerationTrims(&accelerometerConfigMutable()->accZero);
     accInitFilters();
+#endif
 
     imuConfigure(throttleCorrectionConfig()->throttle_correction_angle, throttleCorrectionConfig()->throttle_correction_value);
 
-#ifdef USE_LED_STRIP
+#if defined(USE_LED_STRIP_STATUS_MODE)
     reevaluateLedConfig();
 #endif
 }
