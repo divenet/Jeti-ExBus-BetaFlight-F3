@@ -833,7 +833,7 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
             sbufWriteU8(dst, getCurrentPidProfileIndex());
             sbufWriteU16(dst, constrain(averageSystemLoadPercent, 0, 100));
             if (cmdMSP == MSP_STATUS_EX) {
-                sbufWriteU8(dst, MAX_PROFILE_COUNT);
+                sbufWriteU8(dst, PID_PROFILE_COUNT);
                 sbufWriteU8(dst, getCurrentControlRateProfileIndex());
             } else {  // MSP_STATUS
                 sbufWriteU16(dst, 0); // gyro cycle time
@@ -857,22 +857,27 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
 
     case MSP_RAW_IMU:
         {
+#if defined(USE_ACC)
             // Hack scale due to choice of units for sensor data in multiwii
 
             uint8_t scale;
-
-            if (acc.dev.acc_1G > 512*4) {
+            if (acc.dev.acc_1G > 512 * 4) {
                 scale = 8;
-            } else if (acc.dev.acc_1G > 512*2) {
+            } else if (acc.dev.acc_1G > 512 * 2) {
                 scale = 4;
             } else if (acc.dev.acc_1G >= 512) {
                 scale = 2;
             } else {
                 scale = 1;
             }
+#endif
 
             for (int i = 0; i < 3; i++) {
+#if defined(USE_ACC)
                 sbufWriteU16(dst, lrintf(acc.accADC[i] / scale));
+#else
+                sbufWriteU16(dst, 0);
+#endif
             }
             for (int i = 0; i < 3; i++) {
                 sbufWriteU16(dst, gyroRateDps(i));
@@ -1026,6 +1031,18 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
         }
         break;
 
+    case MSP_MODE_RANGES_EXTRA:
+        sbufWriteU8(dst, MAX_MODE_ACTIVATION_CONDITION_COUNT);          // prepend number of EXTRAs array elements
+
+        for (int i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+            const modeActivationCondition_t *mac = modeActivationConditions(i);
+            const box_t *box = findBoxByBoxId(mac->modeId);
+            sbufWriteU8(dst, box->permanentId);     // each element is aligned with MODE_RANGES by the permanentId
+            sbufWriteU8(dst, mac->modeLogic);
+            sbufWriteU8(dst, mac->linkedTo);
+        }
+        break;
+
     case MSP_ADJUSTMENT_RANGES:
         for (int i = 0; i < MAX_ADJUSTMENT_RANGE_COUNT; i++) {
             const adjustmentRange_t *adjRange = adjustmentRanges(i);
@@ -1125,11 +1142,13 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
 #endif
 #endif
 
+#if defined(USE_ACC)
     case MSP_ACC_TRIM:
         sbufWriteU16(dst, accelerometerConfig()->accelerometerTrims.values.pitch);
         sbufWriteU16(dst, accelerometerConfig()->accelerometerTrims.values.roll);
-        break;
 
+        break;
+#endif
     case MSP_MIXER_CONFIG:
         sbufWriteU8(dst, mixerConfig()->mixerMode);
         sbufWriteU8(dst, mixerConfig()->yaw_motors_reversed);
@@ -1435,7 +1454,11 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
 
         break;
     case MSP_SENSOR_CONFIG:
+#if defined(USE_ACC)
         sbufWriteU8(dst, accelerometerConfig()->acc_hardware);
+#else
+        sbufWriteU8(dst, 0);
+#endif
         sbufWriteU8(dst, barometerConfig()->baro_hardware);
         sbufWriteU8(dst, compassConfig()->mag_hardware);
         break;
@@ -1625,7 +1648,7 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
         value = sbufReadU8(src);
         if ((value & RATEPROFILE_MASK) == 0) {
             if (!ARMING_FLAG(ARMED)) {
-                if (value >= MAX_PROFILE_COUNT) {
+                if (value >= PID_PROFILE_COUNT) {
                     value = 0;
                 }
                 changePidProfile(value);
@@ -1674,10 +1697,13 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
         }
 #endif
         break;
+#if defined(USE_ACC)
     case MSP_SET_ACC_TRIM:
         accelerometerConfigMutable()->accelerometerTrims.values.pitch = sbufReadU16(src);
         accelerometerConfigMutable()->accelerometerTrims.values.roll  = sbufReadU16(src);
+
         break;
+#endif
     case MSP_SET_ARMING_CONFIG:
         armingConfigMutable()->auto_disarm_delay = sbufReadU8(src);
         sbufReadU8(src); // reserved
@@ -1709,7 +1735,12 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
                 mac->auxChannelIndex = sbufReadU8(src);
                 mac->range.startStep = sbufReadU8(src);
                 mac->range.endStep = sbufReadU8(src);
+                if (sbufBytesRemaining(src) != 0) {
+                    mac->modeLogic = sbufReadU8(src);
 
+                    i = sbufReadU8(src);
+                    mac->linkedTo = findBoxByPermanentId(i)->boxId;
+                }
                 rcControlsInit();
             } else {
                 return MSP_RESULT_ERROR;
@@ -2063,9 +2094,14 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
 
         break;
     case MSP_SET_SENSOR_CONFIG:
+#if defined(USE_ACC)
         accelerometerConfigMutable()->acc_hardware = sbufReadU8(src);
+#else
+        sbufReadU8(src);
+#endif
         barometerConfigMutable()->baro_hardware = sbufReadU8(src);
         compassConfigMutable()->mag_hardware = sbufReadU8(src);
+
         break;
 
     case MSP_RESET_CONF:
@@ -2636,6 +2672,7 @@ static mspResult_e mspCommonProcessInCommand(uint8_t cmdMSP, sbuf_t *src, mspPos
                     // selected OSD profile
 #ifdef USE_OSD_PROFILES
                     osdConfigMutable()->osdProfileIndex = sbufReadU8(src);
+                    setOsdProfile(osdConfig()->osdProfileIndex);
 #else
                     sbufReadU8(src);
 #endif // USE_OSD_PROFILES

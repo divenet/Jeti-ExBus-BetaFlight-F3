@@ -154,9 +154,9 @@
 #define USE_LED_STRIP_STATUS_MODE
 
 #if (FLASH_SIZE > 64)
-#define MAX_PROFILE_COUNT 3
+#define PID_PROFILE_COUNT 3
 #else
-#define MAX_PROFILE_COUNT 2
+#define PID_PROFILE_COUNT 2
 #endif
 
 #if (FLASH_SIZE > 64)
@@ -212,7 +212,7 @@
 #if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 8))
 #define USE_LAUNCH_CONTROL
 #define USE_DYN_LPF
-#define USE_D_CUT
+#define USE_D_MIN
 #endif
 
 #if ((FLASH_SIZE > 256) || (FEATURE_CUT_LEVEL < 7))

@@ -52,6 +52,7 @@
 
 #include "pg/pg.h"
 
+#include "sensors/battery.h"
 #include "sensors/gyro.h"
 
 
@@ -326,6 +327,7 @@ static uint8_t  cmsx_throttleBoost;
 static uint16_t cmsx_itermAcceleratorGain;
 static uint16_t cmsx_itermThrottleThreshold;
 static uint8_t  cmsx_motorOutputLimit;
+static int8_t   cmsx_autoProfileCellCount;
 
 static long cmsx_profileOtherOnEnter(void)
 {
@@ -344,6 +346,7 @@ static long cmsx_profileOtherOnEnter(void)
 
     cmsx_throttleBoost = pidProfile->throttle_boost;
     cmsx_motorOutputLimit = pidProfile->motor_output_limit;
+    cmsx_autoProfileCellCount = pidProfile->auto_profile_cell_count;
 
     return 0;
 }
@@ -365,6 +368,7 @@ static long cmsx_profileOtherOnExit(const OSD_Entry *self)
 
     pidProfile->throttle_boost = cmsx_throttleBoost;
     pidProfile->motor_output_limit = cmsx_motorOutputLimit;
+    pidProfile->auto_profile_cell_count = cmsx_autoProfileCellCount;
 
     return 0;
 }
@@ -385,6 +389,8 @@ static OSD_Entry cmsx_menuProfileOtherEntries[] = {
     {"LAUNCH CONTROL", OME_Submenu, cmsMenuChange, &cmsx_menuLaunchControl, 0 },
 #endif
     { "MTR OUT LIM %",OME_UINT8, NULL, &(OSD_UINT8_t) { &cmsx_motorOutputLimit, MOTOR_OUTPUT_LIMIT_PERCENT_MIN,  MOTOR_OUTPUT_LIMIT_PERCENT_MAX,  1}, 0 },
+
+    { "AUTO CELL CNT", OME_INT8, NULL, &(OSD_INT8_t) { &cmsx_autoProfileCellCount, AUTO_PROFILE_CELL_COUNT_CHANGE, MAX_AUTO_DETECT_CELL_COUNT, 1}, 0 },
 
     { "BACK", OME_Back, NULL, NULL, 0 },
     { NULL, OME_END, NULL, NULL, 0 }
@@ -554,8 +560,10 @@ static uint16_t cmsx_dterm_lowpass_hz;
 static uint16_t cmsx_dterm_lowpass2_hz;
 static uint16_t cmsx_dterm_notch_hz;
 static uint16_t cmsx_dterm_notch_cutoff;
-#ifdef USE_D_CUT
-static uint8_t  cmsx_dterm_cut_percent;
+#ifdef USE_D_MIN
+static uint8_t  cmsx_d_min_roll;
+static uint8_t  cmsx_d_min_pitch;
+static uint8_t  cmsx_d_min_yaw;
 #endif
 static uint16_t cmsx_yaw_lowpass_hz;
 
@@ -567,8 +575,10 @@ static long cmsx_FilterPerProfileRead(void)
     cmsx_dterm_lowpass2_hz  = pidProfile->dterm_lowpass2_hz;
     cmsx_dterm_notch_hz     = pidProfile->dterm_notch_hz;
     cmsx_dterm_notch_cutoff = pidProfile->dterm_notch_cutoff;
-#ifdef USE_D_CUT
-    cmsx_dterm_cut_percent  = pidProfile->dterm_cut_percent;
+#ifdef USE_D_MIN
+    cmsx_d_min_roll     = pidProfile->d_min_roll;
+    cmsx_d_min_pitch    = pidProfile->d_min_pitch;
+    cmsx_d_min_yaw    = pidProfile->d_min_yaw;
 #endif
     cmsx_yaw_lowpass_hz     = pidProfile->yaw_lowpass_hz;
 
@@ -585,8 +595,10 @@ static long cmsx_FilterPerProfileWriteback(const OSD_Entry *self)
     pidProfile->dterm_lowpass2_hz  = cmsx_dterm_lowpass2_hz;
     pidProfile->dterm_notch_hz     = cmsx_dterm_notch_hz;
     pidProfile->dterm_notch_cutoff = cmsx_dterm_notch_cutoff;
-#ifdef USE_D_CUT
-    pidProfile->dterm_cut_percent  = cmsx_dterm_cut_percent;
+#ifdef USE_D_MIN
+    pidProfile->d_min_roll  = cmsx_d_min_roll;
+    pidProfile->d_min_pitch = cmsx_d_min_pitch;
+    pidProfile->d_min_yaw   = cmsx_d_min_yaw;
 #endif
     pidProfile->yaw_lowpass_hz     = cmsx_yaw_lowpass_hz;
 
@@ -601,8 +613,10 @@ static OSD_Entry cmsx_menuFilterPerProfileEntries[] =
     { "DTERM LPF2", OME_UINT16, NULL, &(OSD_UINT16_t){ &cmsx_dterm_lowpass2_hz,    0, 500, 1 }, 0 },
     { "DTERM NF",   OME_UINT16, NULL, &(OSD_UINT16_t){ &cmsx_dterm_notch_hz,       0, 500, 1 }, 0 },
     { "DTERM NFCO", OME_UINT16, NULL, &(OSD_UINT16_t){ &cmsx_dterm_notch_cutoff,   0, 500, 1 }, 0 },
-#ifdef USE_D_CUT
-    { "DTERM CUT",  OME_UINT8,  NULL, &(OSD_UINT8_t) { &cmsx_dterm_cut_percent,    0, 100, 1 }, 0 },
+#ifdef USE_D_MIN
+    { "D_MIN_ROLL",  OME_UINT8,  NULL, &(OSD_UINT8_t) { &cmsx_d_min_roll,      0, 100, 1 }, 0 },
+    { "D_MIN_PITCH", OME_UINT8,  NULL, &(OSD_UINT8_t) { &cmsx_d_min_pitch,     0, 100, 1 }, 0 },
+    { "D_MIN_YAW",   OME_UINT8,  NULL, &(OSD_UINT8_t) { &cmsx_d_min_yaw,       0, 100, 1 }, 0 },
 #endif
     { "YAW LPF",    OME_UINT16, NULL, &(OSD_UINT16_t){ &cmsx_yaw_lowpass_hz,       0, 500, 1 }, 0 },
     { "BACK", OME_Back, NULL, NULL, 0 },
@@ -695,7 +709,7 @@ static OSD_Entry cmsx_menuImuEntries[] =
 {
     { "-- PROFILE --", OME_Label, NULL, NULL, 0},
 
-    {"PID PROF",  OME_UINT8,   cmsx_profileIndexOnChange,     &(OSD_UINT8_t){ &tmpPidProfileIndex, 1, MAX_PROFILE_COUNT, 1},    0},
+    {"PID PROF",  OME_UINT8,   cmsx_profileIndexOnChange,     &(OSD_UINT8_t){ &tmpPidProfileIndex, 1, PID_PROFILE_COUNT, 1},    0},
     {"PID",       OME_Submenu, cmsMenuChange,                 &cmsx_menuPid,                                                 0},
     {"MISC PP",   OME_Submenu, cmsMenuChange,                 &cmsx_menuProfileOther,                                        0},
     {"FILT PP",   OME_Submenu, cmsMenuChange,                 &cmsx_menuFilterPerProfile,                                    0},
