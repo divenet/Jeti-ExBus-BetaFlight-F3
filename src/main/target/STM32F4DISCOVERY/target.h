@@ -23,6 +23,9 @@
 #define TARGET_BOARD_IDENTIFIER "SDF4"
 #define USBD_PRODUCT_STRING     "DISCF4"
 
+#define USE_VTX_TABLE
+#define USE_SPI_TRANSACTION
+
 //LEDs
 #define LED0_PIN                PD12
 #define LED1_PIN                PD13
