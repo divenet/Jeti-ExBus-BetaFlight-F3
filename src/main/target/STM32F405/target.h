@@ -26,7 +26,7 @@
 
 #define TARGET_BOARD_IDENTIFIER "S405"
 
-#define USBD_PRODUCT_STRING     "S405"
+#define USBD_PRODUCT_STRING     "Betaflight STM32F405"
 
 #define USE_BEEPER
 
