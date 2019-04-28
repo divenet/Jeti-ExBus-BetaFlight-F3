@@ -29,7 +29,6 @@
 //#pragma GCC diagnostic warning "-Wpadded"
 
 //#define SCHEDULER_DEBUG // define this to use scheduler debug[] values. Undefined by default for performance reasons
-#define DEBUG_MODE DEBUG_NONE // change this to change initial debug mode
 
 #define I2C1_OVERCLOCK true
 #define I2C2_OVERCLOCK true
@@ -318,7 +317,6 @@
 #define USE_CMS_GPS_RESCUE_MENU
 #define USE_SMART_FEEDFORWARD
 #define USE_TELEMETRY_SENSORS_DISABLED_DETAILS
-// Re-enable this after 4.0 has been released, and remove the define from STM32F4DISCOVERY
-//#define USE_VTX_TABLE
+#define USE_VTX_TABLE
 #define USE_PERSISTENT_STATS
 #endif
