@@ -27,6 +27,8 @@
 
 #define MAX_NAME_LENGTH 16u
 
+#define MAX_PROFILE_NAME_LENGTH    8u
+
 typedef struct pilotConfig_s {
     char name[MAX_NAME_LENGTH + 1];
     char displayName[MAX_NAME_LENGTH + 1];

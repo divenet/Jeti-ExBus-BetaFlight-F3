@@ -60,7 +60,7 @@
 #endif
 #endif
 
-#if !defined(USE_BARO) && !defined(USE_GPS)
+#if !defined(USE_BARO)
 #undef USE_VARIO
 #endif
 
@@ -93,6 +93,7 @@
 
 #if !defined(USE_SERIALRX_CRSF)
 #undef USE_TELEMETRY_CRSF
+#undef USE_CRSF_LINK_STATISTICS
 #endif
 
 #if !defined(USE_TELEMETRY_CRSF) || !defined(USE_CMS)

@@ -935,13 +935,18 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
 
     case MSP_MOTOR:
         for (unsigned i = 0; i < 8; i++) {
+#ifdef USE_PWM_OUTPUT
             if (i >= MAX_SUPPORTED_MOTORS || !pwmGetMotors()[i].enabled) {
                 sbufWriteU16(dst, 0);
                 continue;
             }
 
             sbufWriteU16(dst, convertMotorToExternal(motor[i]));
+#else
+            sbufWriteU16(dst, 0);
+#endif
         }
+
         break;
 
     case MSP_RC:
@@ -1358,7 +1363,7 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
         gyroAlignment = gyroDeviceConfig(0)->align;
 #endif
         sbufWriteU8(dst, gyroAlignment);
-        sbufWriteU8(dst, gyroAlignment);  // Starting with 4.0 gyro and acc alignment are the same 
+        sbufWriteU8(dst, gyroAlignment);  // Starting with 4.0 gyro and acc alignment are the same
         sbufWriteU8(dst, compassConfig()->mag_align);
 
         // API 1.41 - Add multi-gyro indicator, selected gyro, and support for separate gyro 1 & 2 alignment
@@ -1445,7 +1450,7 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
         sbufWriteU16(dst, currentPidProfile->itermAcceleratorGain);
         sbufWriteU16(dst, 0); // was currentPidProfile->dtermSetpointWeight
         sbufWriteU8(dst, currentPidProfile->iterm_rotation);
-        sbufWriteU8(dst, 0);
+        sbufWriteU8(dst, 0); // was currentPidProfile->smart_feedforward
 #if defined(USE_ITERM_RELAX)
         sbufWriteU8(dst, currentPidProfile->iterm_relax);
         sbufWriteU8(dst, currentPidProfile->iterm_relax_type);
@@ -1504,12 +1509,12 @@ static bool mspProcessOutCommand(uint8_t cmdMSP, sbuf_t *dst)
 #ifdef USE_BARO
         sbufWriteU8(dst, barometerConfig()->baro_hardware);
 #else
-        sbufWriteU8(dst, 0);
+        sbufWriteU8(dst, BARO_NONE);
 #endif
 #ifdef USE_MAG
         sbufWriteU8(dst, compassConfig()->mag_hardware);
 #else
-        sbufWriteU8(dst, 0);
+        sbufWriteU8(dst, MAG_NONE);
 #endif
         break;
 
@@ -1860,7 +1865,7 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
             if (sbufBytesRemaining(src) >= 1) {
                 currentControlRateProfile->rcExpo[FD_PITCH] = sbufReadU8(src);
             }
-            
+
             // version 1.41
             if (sbufBytesRemaining(src) >= 2) {
                 currentControlRateProfile->throttle_limit_type = sbufReadU8(src);
@@ -2129,7 +2134,7 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
         if (sbufBytesRemaining(src) >= 14) {
             // Added in MSP API 1.40
             currentPidProfile->iterm_rotation = sbufReadU8(src);
-            sbufReadU8(src);
+            sbufReadU8(src); // was currentPidProfile->smart_feedforward
 #if defined(USE_ITERM_RELAX)
             currentPidProfile->iterm_relax = sbufReadU8(src);
             currentPidProfile->iterm_relax_type = sbufReadU8(src);
@@ -2337,6 +2342,7 @@ static mspResult_e mspProcessInCommand(uint8_t cmdMSP, sbuf_t *src)
 #ifdef USE_FLASHFS
     case MSP_DATAFLASH_ERASE:
         flashfsEraseCompletely();
+        flashfsInit();
         break;
 #endif
 
@@ -2760,7 +2766,7 @@ static mspResult_e mspCommonProcessInCommand(uint8_t cmdMSP, sbuf_t *src, mspPos
                     // API < 1.41 supports only the low 16 bits
                     osdConfigMutable()->enabledWarnings = sbufReadU16(src);
                 }
-                
+
                 if (sbufBytesRemaining(src) >= 4) {
                     // 32bit version of enabled warnings (API >= 1.41)
                     osdConfigMutable()->enabledWarnings = sbufReadU32(src);

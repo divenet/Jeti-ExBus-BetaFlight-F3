@@ -52,6 +52,7 @@
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/position.h"
+#include "flight/rpm_filter.h"
 #include "flight/servos.h"
 
 #include "io/beeper.h"
@@ -84,6 +85,7 @@
 #include "pg/rx_spi_cc2500.h"
 #include "pg/sdcard.h"
 #include "pg/vcd.h"
+#include "pg/vtx_io.h"
 #include "pg/usb.h"
 #include "pg/sdio.h"
 #include "pg/rcdevice.h"
@@ -105,7 +107,6 @@
 #include "sensors/esc_sensor.h"
 #include "sensors/gyro.h"
 #include "sensors/rangefinder.h"
-#include "sensors/rpm_filter.h"
 
 #include "telemetry/frsky_hub.h"
 #include "telemetry/ibus_shared.h"
@@ -218,6 +219,7 @@ static const char * const lookupTableSerialRX[] = {
     "SRXL",
     "CUSTOM",
     "FPORT",
+    "DJI_HDL",
 };
 #endif
 
@@ -618,8 +620,6 @@ const clivalue_t valueTable[] = {
 #ifdef USE_DYN_LPF
     { "dyn_lpf_gyro_min_hz",        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_lpf_gyro_min_hz) },
     { "dyn_lpf_gyro_max_hz",        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, dyn_lpf_gyro_max_hz) },
-    { "dyn_lpf_dterm_min_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_min_hz) },
-    { "dyn_lpf_dterm_max_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_max_hz) },
 #endif
     { "gyro_filter_debug_axis",    VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GYRO_FILTER_DEBUG }, PG_GYRO_CONFIG, offsetof(gyroConfig_t, gyro_filter_debug_axis) },
 
@@ -836,6 +836,9 @@ const clivalue_t valueTable[] = {
 #endif
 
 // PG_CONTROLRATE_PROFILES
+#ifdef USE_PROFILE_NAMES
+    { "rateprofile_name",           VAR_UINT8  | PROFILE_RATE_VALUE | MODE_STRING, .config.string = { 1, MAX_RATE_PROFILE_NAME_LENGTH, STRING_FLAGS_NONE }, PG_CONTROL_RATE_PROFILES, offsetof(controlRateConfig_t, profileName) },
+#endif
     { "thr_mid",                    VAR_UINT8  | PROFILE_RATE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_CONTROL_RATE_PROFILES, offsetof(controlRateConfig_t, thrMid8) },
     { "thr_expo",                   VAR_UINT8  | PROFILE_RATE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_CONTROL_RATE_PROFILES, offsetof(controlRateConfig_t, thrExpo8) },
     { "rates_type",                 VAR_UINT8  | PROFILE_RATE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_RATES_TYPE }, PG_CONTROL_RATE_PROFILES, offsetof(controlRateConfig_t, rates_type) },
@@ -905,7 +908,9 @@ const clivalue_t valueTable[] = {
     { "gps_rescue_min_sats",        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 50 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, minSats) },
     { "gps_rescue_min_dth",         VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 50, 1000 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, minRescueDth) },
     { "gps_rescue_allow_arming_without_fix", VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, allowArmingWithoutFix) },
+#ifdef USE_MAG
     { "gps_rescue_use_mag",         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, useMag) },
+#endif
 #endif
 #endif
 
@@ -922,6 +927,13 @@ const clivalue_t valueTable[] = {
 #endif
 
 // PG_PID_PROFILE
+#ifdef USE_PROFILE_NAMES
+    { "profile_name",               VAR_UINT8  | PROFILE_VALUE | MODE_STRING, .config.string = { 1, MAX_PROFILE_NAME_LENGTH, STRING_FLAGS_NONE }, PG_PID_PROFILE, offsetof(pidProfile_t, profileName) },
+#endif
+#ifdef USE_DYN_LPF
+    { "dyn_lpf_dterm_min_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_min_hz) },
+    { "dyn_lpf_dterm_max_hz",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dyn_lpf_dterm_max_hz) },
+#endif
     { "dterm_lowpass_type",         VAR_UINT8  | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_DTERM_LOWPASS_TYPE }, PG_PID_PROFILE, offsetof(pidProfile_t, dterm_filter_type) },
     { "dterm_lowpass_hz",           VAR_INT16  | PROFILE_VALUE, .config.minmax = { 0, 16000 }, PG_PID_PROFILE, offsetof(pidProfile_t, dterm_lowpass_hz) },
     { "dterm_lowpass2_type",        VAR_UINT8  | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_DTERM_LOWPASS_TYPE }, PG_PID_PROFILE, offsetof(pidProfile_t, dterm_filter2_type) },
@@ -1225,6 +1237,11 @@ const clivalue_t valueTable[] = {
     { "osd_stick_overlay_radio_mode",  VAR_UINT8   | MASTER_VALUE, .config.minmaxUnsigned = { 1, 4 }, PG_OSD_CONFIG, offsetof(osdConfig_t, overlay_radio_mode) },
 #endif
 
+#ifdef USE_PROFILE_NAMES
+    { "osd_rate_profile_name_pos",  VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_CONFIG, offsetof(osdConfig_t, item_pos[OSD_RATE_PROFILE_NAME]) },
+    { "osd_pid_profile_name_pos",   VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_CONFIG, offsetof(osdConfig_t, item_pos[OSD_PID_PROFILE_NAME]) },
+#endif
+
     // OSD stats enabled flags are stored as bitmapped values inside a 32bit parameter
     // It is recommended to keep the settings order the same as the enumeration. This way the settings are displayed in the cli in the same order making it easier on the users
     { "osd_stat_rtc_date_time",     VAR_UINT32  | MASTER_VALUE | MODE_BITSET, .config.bitpos = OSD_STAT_RTC_DATE_TIME,   PG_OSD_CONFIG, offsetof(osdConfig_t, enabled_stats)},
@@ -1288,6 +1305,11 @@ const clivalue_t valueTable[] = {
 // PG_VTX_CONFIG
 #if defined(USE_VTX_CONTROL) && defined(USE_VTX_COMMON)
     { "vtx_halfduplex",             VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_VTX_CONFIG, offsetof(vtxConfig_t, halfDuplex) },
+#endif
+
+// PG_VTX_IO
+#ifdef USE_VTX_RTC6705
+    { "vtx_spi_bus",                VAR_UINT8  | HARDWARE_VALUE | MASTER_VALUE, .config.minmaxUnsigned = { 0, SPIDEV_COUNT }, PG_VTX_IO_CONFIG, offsetof(vtxIOConfig_t, spiDevice) },
 #endif
 
 // PG_VCD_CONFIG
@@ -1443,7 +1465,7 @@ const clivalue_t valueTable[] = {
 #ifdef USE_PERSISTENT_STATS
     { "stats",                  VAR_INT8   | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_STATS_CONFIG, offsetof(statsConfig_t, stats_enabled) },
     { "stats_total_flights",    VAR_UINT32 | MASTER_VALUE, .config.u32Max = UINT32_MAX, PG_STATS_CONFIG, offsetof(statsConfig_t, stats_total_flights) },
-    
+
     { "stats_total_time_s",     VAR_UINT32 | MASTER_VALUE, .config.u32Max = UINT32_MAX, PG_STATS_CONFIG, offsetof(statsConfig_t, stats_total_time_s) },
     { "stats_total_dist_m",     VAR_UINT32 | MASTER_VALUE, .config.u32Max = UINT32_MAX, PG_STATS_CONFIG, offsetof(statsConfig_t, stats_total_dist_m) },
 #endif

@@ -27,7 +27,13 @@
 
 #include "blackbox/blackbox.h"
 
+#include "build/build_config.h"
+#include "build/debug.h"
+
 #include "cli/cli.h"
+
+#include "cms/cms.h"
+#include "cms/cms_types.h"
 
 #include "common/axis.h"
 #include "common/color.h"
@@ -37,17 +43,11 @@
 #include "config/config_eeprom.h"
 #include "config/feature.h"
 
-#include "cms/cms.h"
-#include "cms/cms_types.h"
-
 #include "drivers/accgyro/accgyro.h"
-#include "drivers/camera_control.h"
-#include "drivers/compass/compass.h"
-#include "drivers/pwm_esc_detect.h"
-#include "drivers/pwm_output.h"
 #include "drivers/adc.h"
 #include "drivers/bus.h"
 #include "drivers/bus_i2c.h"
+#include "drivers/bus_quadspi.h"
 #include "drivers/bus_spi.h"
 #include "drivers/buttons.h"
 #include "drivers/camera_control.h"
@@ -74,22 +74,51 @@
 #include "drivers/time.h"
 #include "drivers/timer.h"
 #include "drivers/transponder_ir.h"
-#include "drivers/exti.h"
 #include "drivers/usb_io.h"
-#include "drivers/vtx_rtc6705.h"
-#include "drivers/vtx_common.h"
-#include "drivers/vtx_table.h"
 #ifdef USE_USB_MSC
 #include "drivers/usb_msc.h"
 #endif
+#include "drivers/vtx_common.h"
+#include "drivers/vtx_rtc6705.h"
+#include "drivers/vtx_table.h"
 
 #include "fc/board_info.h"
 #include "fc/config.h"
+#include "fc/dispatch.h"
 #include "fc/init.h"
-#include "fc/tasks.h"
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
-#include "fc/dispatch.h"
+#include "fc/tasks.h"
+
+#include "flight/failsafe.h"
+#include "flight/imu.h"
+#include "flight/mixer.h"
+#include "flight/pid.h"
+#include "flight/rpm_filter.h"
+#include "flight/servos.h"
+
+#include "io/asyncfatfs/asyncfatfs.h"
+#include "io/beeper.h"
+#include "io/dashboard.h"
+#include "io/displayport_max7456.h"
+#include "io/displayport_msp.h"
+#include "io/displayport_srxl.h"
+#include "io/flashfs.h"
+#include "io/gimbal.h"
+#include "io/gps.h"
+#include "io/ledstrip.h"
+#include "io/motors.h"
+#include "io/pidaudio.h"
+#include "io/piniobox.h"
+#include "io/rcdevice_cam.h"
+#include "io/serial.h"
+#include "io/servos.h"
+#include "io/transponder_ir.h"
+#include "io/vtx.h"
+#include "io/vtx_control.h"
+#include "io/vtx_rtc6705.h"
+#include "io/vtx_smartaudio.h"
+#include "io/vtx_tramp.h"
 
 #ifdef USE_PERSISTENT_MSC_RTC
 #include "msc/usbd_storage.h"
@@ -98,11 +127,14 @@
 #include "msp/msp.h"
 #include "msp/msp_serial.h"
 
+#include "osd/osd.h"
+
 #include "pg/adc.h"
 #include "pg/beeper.h"
 #include "pg/beeper_dev.h"
 #include "pg/bus_i2c.h"
 #include "pg/bus_spi.h"
+#include "pg/bus_quadspi.h"
 #include "pg/flash.h"
 #include "pg/mco.h"
 #include "pg/pinio.h"
@@ -113,34 +145,11 @@
 #include "pg/rx_pwm.h"
 #include "pg/sdcard.h"
 #include "pg/vcd.h"
+#include "pg/vtx_io.h"
 
 #include "rx/rx.h"
 #include "rx/rx_spi.h"
 #include "rx/spektrum.h"
-
-#include "io/beeper.h"
-#include "io/displayport_max7456.h"
-#include "io/displayport_srxl.h"
-#include "io/serial.h"
-#include "io/flashfs.h"
-#include "io/gps.h"
-#include "io/motors.h"
-#include "io/servos.h"
-#include "io/gimbal.h"
-#include "io/ledstrip.h"
-#include "io/dashboard.h"
-#include "io/asyncfatfs/asyncfatfs.h"
-#include "io/transponder_ir.h"
-#include "io/pidaudio.h"
-#include "io/piniobox.h"
-#include "io/displayport_msp.h"
-#include "io/vtx.h"
-#include "io/vtx_rtc6705.h"
-#include "io/vtx_control.h"
-#include "io/vtx_smartaudio.h"
-#include "io/vtx_tramp.h"
-
-#include "osd/osd.h"
 
 #include "scheduler/scheduler.h"
 
@@ -152,25 +161,13 @@
 #include "sensors/esc_sensor.h"
 #include "sensors/gyro.h"
 #include "sensors/initialisation.h"
-#include "sensors/rpm_filter.h"
 #include "sensors/sensors.h"
 
 #include "telemetry/telemetry.h"
 
-#include "flight/failsafe.h"
-#include "flight/imu.h"
-#include "flight/mixer.h"
-#include "flight/pid.h"
-#include "flight/servos.h"
-
-#include "io/rcdevice_cam.h"
-
 #ifdef USE_HARDWARE_REVISION_DETECTION
 #include "hardware_revision.h"
 #endif
-
-#include "build/build_config.h"
-#include "build/debug.h"
 
 #ifdef TARGET_PREINIT
 void targetPreInit(void);
@@ -209,20 +206,6 @@ static IO_t busSwitchResetPin        = IO_NONE;
 }
 #endif
 
-#ifdef USE_DSHOT_TELEMETRY
-void activateDshotTelemetry(struct dispatchEntry_s* self)
-{
-    if (!ARMING_FLAG(ARMED) && !isDshotTelemetryActive()) {
-        pwmWriteDshotCommand(ALL_MOTORS, getMotorCount(), DSHOT_CMD_SIGNAL_LINE_CONTINUOUS_ERPM_TELEMETRY, false);
-        dispatchAdd(self, 1e6); // check again in 1 second
-    }
-}
-
-dispatchEntry_t activateDshotTelemetryEntry =
-{
-    activateDshotTelemetry, 0, NULL, false
-};
-#endif
 
 void init(void)
 {
@@ -317,7 +300,14 @@ void init(void)
 
     delayMicroseconds(10);  // allow configuration to settle // XXX Could be removed, too?
 
-    if (!isMPUSoftReset()) {
+    // Allow EEPROM reset with two-button-press without power cycling in DEBUG build
+#ifdef DEBUG
+#define EEPROM_RESET_PRECONDITION true
+#else
+#define EEPROM_RESET_PRECONDITION (!isMPUSoftReset())
+#endif
+
+    if (EEPROM_RESET_PRECONDITION) {
 #if defined(BUTTON_A_PIN) && defined(BUTTON_B_PIN)
         // two buttons required
         uint8_t secondsRemaining = 5;
@@ -335,7 +325,10 @@ void init(void)
         } while (bothButtonsHeld);
 #endif
     }
-#endif
+
+#undef EEPROM_RESET_PRECONDITION
+
+#endif // USE_BUTTONS
 
     // Note that spektrumBind checks if a call is immediately after
     // hard reset (including power cycle), so it should be called before
@@ -372,7 +365,9 @@ void init(void)
     mcoInit(mcoConfig());
 #endif
 
+#ifdef USE_TIMER
     timerInit();  // timer must be initialized before any channel is allocated
+#endif
 
 #ifdef BUS_SWITCH_PIN
     busSwitchInit();
@@ -405,11 +400,15 @@ void init(void)
     if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_BRUSHED) {
         idlePulse = 0; // brushed motors
     }
+#ifdef USE_PWM_OUTPUT
     /* Motors needs to be initialized soon as posible because hardware initialization
      * may send spurious pulses to esc's causing their early initialization. Also ppm
      * receiver may share timer with motors so motors MUST be initialized here. */
     motorDevInit(&motorConfig()->dev, idlePulse, getMotorCount());
     systemState |= SYSTEM_STATE_MOTORS_READY;
+#else
+    UNUSED(idlePulse);
+#endif
 
     if (0) {}
 #if defined(USE_PPM)
@@ -457,7 +456,22 @@ void init(void)
 #ifdef USE_SPI_DEVICE_4
     spiInit(SPIDEV_4);
 #endif
+#ifdef USE_SPI_DEVICE_5
+    spiInit(SPIDEV_5);
+#endif
+#ifdef USE_SPI_DEVICE_6
+    spiInit(SPIDEV_6);
+#endif
 #endif // USE_SPI
+
+#ifdef USE_QUADSPI
+    quadSpiPinConfigure(quadSpiConfig(0));
+
+#ifdef USE_QUADSPI_DEVICE_1
+    quadSpiInit(QUADSPIDEV_1);
+#endif
+#endif // USE_QUAD_SPI
+
 
 #ifdef USE_USB_MSC
 /* MSC mode will start after init, but will not allow scheduler to run,
@@ -504,8 +518,13 @@ void init(void)
     updateHardwareRevision();
 #endif
 
+#if defined(STM32H7) && defined(USE_SDCARD_SDIO) // H7 only for now, likely should be applied to F4/F7 too
+    void SDIO_GPIO_Init(void);
+    SDIO_GPIO_Init();
+#endif
+
 #ifdef USE_VTX_RTC6705
-    rtc6705IOInit();
+    bool useRTC6705 = rtc6705IOInit(vtxIOConfig());
 #endif
 
 #ifdef USE_CAMERA_CONTROL
@@ -696,11 +715,11 @@ void init(void)
     }
 #endif
 
-#ifdef USE_FLASHFS
-#if defined(USE_FLASH_CHIP)
+#ifdef USE_FLASH_CHIP
     flashInit(flashConfig());
-#endif
+#ifdef USE_FLASHFS
     flashfsInit();
+#endif
 #endif
 
 #ifdef USE_BLACKBOX
@@ -748,19 +767,18 @@ void init(void)
 #endif
 
 #ifdef USE_VTX_RTC6705
-#ifdef VTX_RTC6705_OPTIONAL
-    if (!vtxCommonDevice()) // external VTX takes precedence when configured.
-#endif
-    {
+    if (!vtxCommonDevice() && useRTC6705) { // external VTX takes precedence when configured.
         vtxRTC6705Init();
     }
 #endif
 
 #endif // VTX_CONTROL
 
+#ifdef USE_TIMER
     // start all timers
     // TODO - not implemented yet
     timerStart();
+#endif
 
     ENABLE_STATE(SMALL_ANGLE);
 
@@ -790,16 +808,11 @@ void init(void)
     rcdeviceInit();
 #endif // USE_RCDEVICE
 
+#ifdef USE_PWM_OUTPUT
     pwmEnableMotors();
+#endif
 
     setArmingDisabled(ARMING_DISABLED_BOOT_GRACE_TIME);
-
-#ifdef USE_DSHOT_TELEMETRY
-    if (motorConfig()->dev.useDshotTelemetry) {
-        dispatchEnable();
-        dispatchAdd(&activateDshotTelemetryEntry, 5000000);
-    }
-#endif
 
     fcTasksInit();
 

@@ -66,6 +66,11 @@
 #include "fc/config.h"
 #include "fc/runtime_config.h"
 
+#ifdef USE_GYRO_DATA_ANALYSE
+#include "flight/gyroanalyse.h"
+#endif
+#include "flight/rpm_filter.h"
+
 #include "io/beeper.h"
 #include "io/statusindicator.h"
 
@@ -73,10 +78,6 @@
 
 #include "sensors/boardalignment.h"
 #include "sensors/gyro.h"
-#ifdef USE_GYRO_DATA_ANALYSE
-#include "sensors/gyroanalyse.h"
-#endif
-#include "sensors/rpm_filter.h"
 #include "sensors/sensors.h"
 
 #if ((FLASH_SIZE > 128) && (defined(USE_GYRO_SPI_ICM20601) || defined(USE_GYRO_SPI_ICM20689) || defined(USE_GYRO_SPI_MPU6500)))
@@ -1006,13 +1007,13 @@ static FAST_CODE void checkForYawSpin(gyroSensor_t *gyroSensor, timeUs_t current
 
 #define GYRO_FILTER_FUNCTION_NAME filterGyro
 #define GYRO_FILTER_DEBUG_SET(mode, index, value) { UNUSED(mode); UNUSED(index); UNUSED(value); }
-#include "gyro_filter_impl.h"
+#include "gyro_filter_impl.c"
 #undef GYRO_FILTER_FUNCTION_NAME
 #undef GYRO_FILTER_DEBUG_SET
 
 #define GYRO_FILTER_FUNCTION_NAME filterGyroDebug
 #define GYRO_FILTER_DEBUG_SET DEBUG_SET
-#include "gyro_filter_impl.h"
+#include "gyro_filter_impl.c"
 #undef GYRO_FILTER_FUNCTION_NAME
 #undef GYRO_FILTER_DEBUG_SET
 
