@@ -286,6 +286,12 @@ void osdFormatTime(char * buff, osd_timer_precision_e precision, timeUs_t time)
             tfp_sprintf(buff, "%02d:%02d.%02d", minutes, seconds, hundredths);
             break;
         }
+    case OSD_TIMER_PREC_TENTHS:
+        {
+            const int tenths = (time / 100000) % 10;
+            tfp_sprintf(buff, "%02d:%02d.%01d", minutes, seconds, tenths);
+            break;
+        }
     }
 }
 
@@ -779,13 +785,12 @@ static void osdElementGpsHomeDistance(osdElementParms_t *element)
 {
     if (STATE(GPS_FIX) && STATE(GPS_FIX_HOME)) {
         const int32_t distance = osdGetMetersToSelectedUnit(GPS_distanceToHome);
-        tfp_sprintf(element->buff, "%d%c", distance, osdGetMetersToSelectedUnitSymbol());
+        tfp_sprintf(element->buff, "%c%d%c", SYM_HOMEFLAG, distance, osdGetMetersToSelectedUnitSymbol());
     } else {
+        element->buff[0] = SYM_HOMEFLAG;
         // We use this symbol when we don't have a FIX
-        element->buff[0] = SYM_COLON;
-        // overwrite any previous distance with blanks
-        memset(element->buff + 1, SYM_BLANK, 6);
-        element->buff[7] = '\0';
+        element->buff[1] = SYM_COLON;
+        element->buff[2] = '\0';
     }
 }
 
@@ -830,13 +835,17 @@ static void osdElementHorizonSidebars(osdElementParms_t *element)
 #ifdef USE_RX_LINK_QUALITY_INFO
 static void osdElementLinkQuality(osdElementParms_t *element)
 {
-    // change range to 0-9 (two sig. fig. adds little extra value, also reduces screen estate)
-    uint8_t osdLinkQuality = rxGetLinkQuality() * 10 / LINK_QUALITY_MAX_VALUE;
-    if (osdLinkQuality >= 10) {
-        osdLinkQuality = 9;
+    uint16_t osdLinkQuality = 0;
+    if (linkQualitySource == LQ_SOURCE_RX_PROTOCOL_CRSF) { // 0-300
+        osdLinkQuality = rxGetLinkQuality()  / 3.41;
+        tfp_sprintf(element->buff, "%3d", osdLinkQuality);
+    } else { // 0-9
+        osdLinkQuality = rxGetLinkQuality() * 10 / LINK_QUALITY_MAX_VALUE;
+        if (osdLinkQuality >= 10) {
+            osdLinkQuality = 9;
+        }
+        tfp_sprintf(element->buff, "%1d", osdLinkQuality);
     }
-
-    tfp_sprintf(element->buff, "%1d", osdLinkQuality);
 }
 #endif // USE_RX_LINK_QUALITY_INFO
 
@@ -995,6 +1004,13 @@ static void osdElementRtcTime(osdElementParms_t *element)
     osdFormatRtcDateTime(&element->buff[0]);
 }
 #endif // USE_RTC_TIME
+
+#ifdef USE_RX_RSSI_DBM
+static void osdElementRssiDbm(osdElementParms_t *element)
+{
+    tfp_sprintf(element->buff, "%c%3d", SYM_RSSI, getRssiDbm() * -1);
+}
+#endif // USE_RX_RSSI_DBM
 
 #ifdef USE_OSD_STICK_OVERLAY
 static void osdElementStickOverlay(osdElementParms_t *element)
@@ -1163,6 +1179,14 @@ static void osdElementWarnings(osdElementParms_t *element)
         SET_BLINK(OSD_WARNINGS);
         return;
     }
+#ifdef USE_RX_RSSI_DBM
+    // rssi dbm
+    if (osdWarnGetState(OSD_WARNING_RSSI_DBM) && (getRssiDbm() > osdConfig()->rssi_dbm_alarm)) {
+        osdFormatMessage(element->buff, OSD_FORMAT_MESSAGE_BUFFER_SIZE, "RSSI DBM");
+        SET_BLINK(OSD_WARNINGS);
+        return;
+    }
+#endif // USE_RX_RSSI_DBM
 
 #ifdef USE_RX_LINK_QUALITY_INFO
     // Link Quality
@@ -1366,6 +1390,9 @@ static const uint8_t osdElementDisplayOrder[] = {
 #ifdef USE_RX_LINK_QUALITY_INFO
     OSD_LINK_QUALITY,
 #endif
+#ifdef USE_RX_RSSI_DBM
+    OSD_RSSI_DBM_VALUE,
+#endif
 #ifdef USE_OSD_STICK_OVERLAY
     OSD_STICK_OVERLAY_LEFT,
     OSD_STICK_OVERLAY_RIGHT,
@@ -1472,6 +1499,9 @@ const osdElementDrawFn osdElementDrawFunction[OSD_ITEM_COUNT] = {
 #ifdef USE_PROFILE_NAMES
     [OSD_RATE_PROFILE_NAME]       = osdElementRateProfileName,
     [OSD_PID_PROFILE_NAME]        = osdElementPidProfileName,
+#endif
+#ifdef USE_RX_RSSI_DBM
+    [OSD_RSSI_DBM_VALUE]          = osdElementRssiDbm,
 #endif
 
 };

@@ -15,6 +15,7 @@ COMMON_SRC = \
             drivers/bus_i2c_config.c \
             drivers/bus_i2c_busdev.c \
             drivers/bus_i2c_soft.c \
+            drivers/bus_quadspi.c \
             drivers/bus_spi.c \
             drivers/bus_spi_config.c \
             drivers/bus_spi_pinconfig.c \
@@ -214,6 +215,7 @@ SPEED_OPTIMISED_SRC := $(SPEED_OPTIMISED_SRC) \
             drivers/adc.c \
             drivers/buf_writer.c \
             drivers/bus.c \
+            drivers/bus_quadspi.c \
             drivers/bus_spi.c \
             drivers/exti.c \
             drivers/io.c \
@@ -364,6 +366,7 @@ ifneq ($(filter ONBOARDFLASH,$(FEATURES)),)
 SRC += \
             drivers/flash.c \
             drivers/flash_m25p16.c \
+            drivers/flash_w25n01g.c \
             drivers/flash_w25m.c \
             io/flashfs.c \
             pg/flash.c \
