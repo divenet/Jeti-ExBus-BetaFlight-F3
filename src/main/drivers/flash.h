@@ -51,7 +51,7 @@ void flashPreInit(const flashConfig_t *flashConfig);
 bool flashInit(const flashConfig_t *flashConfig);
 
 bool flashIsReady(void);
-bool flashWaitForReady(uint32_t timeoutMillis);
+bool flashWaitForReady(void);
 void flashEraseSector(uint32_t address);
 void flashEraseCompletely(void);
 void flashPageProgramBegin(uint32_t address);
@@ -94,3 +94,4 @@ void flashPartitionSet(uint8_t index, uint32_t startSector, uint32_t endSector);
 flashPartition_t *flashPartitionFindByType(flashPartitionType_e type);
 const flashPartition_t *flashPartitionFindByIndex(uint8_t index);
 const char *flashPartitionGetTypeName(flashPartitionType_e type);
+int flashPartitionCount(void);

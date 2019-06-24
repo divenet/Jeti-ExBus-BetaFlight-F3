@@ -31,10 +31,6 @@
 // FIXME remove this for targets that don't need a CLI.  Perhaps use a no-op macro when USE_CLI is not enabled
 // signal that we're in cli mode
 uint8_t cliMode = 0;
-#ifndef EEPROM_IN_RAM
-extern uint8_t __config_start;   // configured via linker script when building binaries.
-extern uint8_t __config_end;
-#endif
 
 #ifdef USE_CLI
 
@@ -167,6 +163,13 @@ extern uint8_t __config_end;
 #include "telemetry/telemetry.h"
 
 #include "cli.h"
+
+typedef struct serialPassthroughPort_e {
+    int id;
+    uint32_t baud;
+    unsigned mode;
+    serialPort_t *port;
+} serialPassthroughPort_t;
 
 static serialPort_t *cliPort;
 
@@ -648,7 +651,7 @@ static const char *dumpPgValue(const clivalue_t *value, dumpFlags_t dumpMask, co
 #ifdef DEBUG
     if (!pg) {
         cliPrintLinef("VALUE %s ERROR", value->name);
-        return; // if it's not found, the pgn shouldn't be in the value table!
+        return headingStr; // if it's not found, the pgn shouldn't be in the value table!
     }
 #endif
 
@@ -1235,6 +1238,20 @@ static void cbCtrlLine(void *context, uint16_t ctrl)
     }
 }
 
+static int cliParseSerialMode(const char *tok)
+{
+    int mode = 0;
+
+    if (strcasestr(tok, "rx")) {
+        mode |= MODE_RX;
+    }
+    if (strcasestr(tok, "tx")) {
+        mode |= MODE_TX;
+    }
+
+    return mode;
+}
+
 static void cliSerialPassthrough(char *cmdline)
 {
     if (isEmpty(cmdline)) {
@@ -1242,12 +1259,10 @@ static void cliSerialPassthrough(char *cmdline)
         return;
     }
 
-    int id = -1;
-    uint32_t baud = 0;
+    serialPassthroughPort_t ports[2] = { {SERIAL_PORT_NONE, 0, 0, NULL}, { SERIAL_PORT_USB_VCP, 0, 0, cliPort} };
     bool enableBaudCb = false;
-    int pinioDtr = 0;
-    bool resetOnDtr = false;
-    unsigned mode = 0;
+    int port1PinioDtr = 0;
+    bool port1ResetOnDtr = false;
     char *saveptr;
     char* tok = strtok_r(cmdline, " ", &saveptr);
     int index = 0;
@@ -1255,120 +1270,153 @@ static void cliSerialPassthrough(char *cmdline)
     while (tok != NULL) {
         switch (index) {
         case 0:
-            id = atoi(tok);
+            ports[0].id = atoi(tok);
             break;
         case 1:
-            baud = atoi(tok);
+            ports[0].baud = atoi(tok);
             break;
         case 2:
-            if (strcasestr(tok, "rx")) {
-                mode |= MODE_RX;
-            }
-            if (strcasestr(tok, "tx")) {
-                mode |= MODE_TX;
-            }
+            ports[0].mode = cliParseSerialMode(tok);
             break;
         case 3:
             if (strncasecmp(tok, "reset", strlen(tok)) == 0) {
-                resetOnDtr = true;
+                port1ResetOnDtr = true;
 #ifdef USE_PINIO
+            } else if (strncasecmp(tok, "none", strlen(tok)) == 0) {
+                port1PinioDtr = 0;
             } else {
-                pinioDtr = atoi(tok);
+                port1PinioDtr = atoi(tok);
+                if (port1PinioDtr < 0 || port1PinioDtr > PINIO_COUNT) {
+                    cliPrintLinef("Invalid PinIO number %d", port1PinioDtr);
+                    return ;
+                }
 #endif /* USE_PINIO */
             }
-
+            break;
+        case 4:
+            ports[1].id = atoi(tok);
+            ports[1].port = NULL;
+            break;
+        case 5:
+            ports[1].baud = atoi(tok);
+            break;
+        case 6:
+            ports[1].mode = cliParseSerialMode(tok);
             break;
         }
         index++;
         tok = strtok_r(NULL, " ", &saveptr);
     }
 
-    if (baud == 0) {
+    // Port checks
+    if (ports[0].id == ports[1].id) {
+        cliPrintLinef("Port1 and port2 are same");
+        return ;
+    }
+
+    for (int i = 0; i < 2; i++) {
+        if (findSerialPortIndexByIdentifier(ports[i].id) == -1) {
+            cliPrintLinef("Invalid port%d %d", i + 1, ports[i].id);
+            return ;
+        } else {
+            cliPrintLinef("Port%d: %d ", i + 1, ports[i].id);
+        }
+    }
+
+    if (ports[0].baud == 0 && ports[1].id == SERIAL_PORT_USB_VCP) {
         enableBaudCb = true;
     }
 
-    cliPrintf("Port %d ", id);
-    serialPort_t *passThroughPort;
-    serialPortUsage_t *passThroughPortUsage = findSerialPortUsageByIdentifier(id);
-    if (!passThroughPortUsage || passThroughPortUsage->serialPort == NULL) {
-        if (enableBaudCb) {
-            // Set default baud
-            baud = 57600;
+    for (int i = 0; i < 2; i++) {
+        serialPort_t **port = &(ports[i].port);
+        if (*port != NULL) {
+            continue;
         }
 
-        if (!mode) {
-            mode = MODE_RXTX;
-        }
+        int portIndex = i + 1;
+        serialPortUsage_t *portUsage = findSerialPortUsageByIdentifier(ports[i].id);
+        if (!portUsage || portUsage->serialPort == NULL) {
+            bool isUseDefaultBaud = false;
+            if (ports[i].baud == 0) {
+                // Set default baud
+                ports[i].baud = 57600;
+                isUseDefaultBaud = true;
+            }
 
-        passThroughPort = openSerialPort(id, FUNCTION_NONE, NULL, NULL,
-                                         baud, mode,
-                                         SERIAL_NOT_INVERTED);
-        if (!passThroughPort) {
-            cliPrintLine("could not be opened.");
-            return;
-        }
+            if (!ports[i].mode) {
+                ports[i].mode = MODE_RXTX;
+            }
 
-        if (enableBaudCb) {
-            cliPrintf("opened, default baud = %d.\r\n", baud);
+            *port = openSerialPort(ports[i].id, FUNCTION_NONE, NULL, NULL,
+                                            ports[i].baud, ports[i].mode,
+                                            SERIAL_NOT_INVERTED);
+            if (!*port) {
+                cliPrintLinef("Port%d could not be opened.", portIndex);
+                return;
+            }
+
+            if (isUseDefaultBaud) {
+                cliPrintf("Port%d opened, default baud = %d.\r\n", portIndex, ports[i].baud);
+            } else {
+                cliPrintf("Port%d opened, baud = %d.\r\n", portIndex, ports[i].baud);
+            }
         } else {
-            cliPrintf("opened, baud = %d.\r\n", baud);
-        }
-    } else {
-        passThroughPort = passThroughPortUsage->serialPort;
-        // If the user supplied a mode, override the port's mode, otherwise
-        // leave the mode unchanged. serialPassthrough() handles one-way ports.
-        // Set the baud rate if specified
-        if (baud) {
-            cliPrintf("already open, setting baud = %d.\n\r", baud);
-            serialSetBaudRate(passThroughPort, baud);
-        } else {
-            cliPrintf("already open, baud = %d.\n\r", passThroughPort->baudRate);
-        }
+            *port = portUsage->serialPort;
+            // If the user supplied a mode, override the port's mode, otherwise
+            // leave the mode unchanged. serialPassthrough() handles one-way ports.
+            // Set the baud rate if specified
+            if (ports[i].baud) {
+                cliPrintf("Port%d is already open, setting baud = %d.\n\r", portIndex, ports[i].baud);
+                serialSetBaudRate(*port, ports[i].baud);
+            } else {
+                cliPrintf("Port%d is already open, baud = %d.\n\r", portIndex, (*port)->baudRate);
+            }
 
-        if (mode && passThroughPort->mode != mode) {
-            cliPrintf("Mode changed from %d to %d.\r\n",
-                   passThroughPort->mode, mode);
-            serialSetMode(passThroughPort, mode);
-        }
+            if (ports[i].mode && (*port)->mode != ports[i].mode) {
+                cliPrintf("Port%d mode changed from %d to %d.\r\n",
+                    portIndex, (*port)->mode, ports[i].mode);
+                serialSetMode(*port, ports[i].mode);
+            }
 
-        // If this port has a rx callback associated we need to remove it now.
-        // Otherwise no data will be pushed in the serial port buffer!
-        if (passThroughPort->rxCallback) {
-            passThroughPort->rxCallback = 0;
+            // If this port has a rx callback associated we need to remove it now.
+            // Otherwise no data will be pushed in the serial port buffer!
+            if ((*port)->rxCallback) {
+                (*port)->rxCallback = NULL;
+            }
         }
     }
 
     // If no baud rate is specified allow to be set via USB
     if (enableBaudCb) {
-        cliPrintLine("Baud rate change over USB enabled.");
+        cliPrintLine("Port1 baud rate change over USB enabled.");
         // Register the right side baud rate setting routine with the left side which allows setting of the UART
         // baud rate over USB without setting it using the serialpassthrough command
-        serialSetBaudRateCb(cliPort, serialSetBaudRate, passThroughPort);
+        serialSetBaudRateCb(ports[0].port, serialSetBaudRate, ports[1].port);
     }
 
     char *resetMessage = "";
-    if (resetOnDtr) {
+    if (port1ResetOnDtr && ports[1].id == SERIAL_PORT_USB_VCP) {
         resetMessage = "or drop DTR ";
     }
 
     cliPrintLinef("Forwarding, power cycle %sto exit.", resetMessage);
 
-    if (resetOnDtr
+    if ((ports[1].id == SERIAL_PORT_USB_VCP) && (port1ResetOnDtr
 #ifdef USE_PINIO
-        || pinioDtr
+        || port1PinioDtr
 #endif /* USE_PINIO */
-        ) {
+        )) {
         // Register control line state callback
-        serialSetCtrlLineStateCb(cliPort, cbCtrlLine, (void *)(intptr_t)(pinioDtr));
+        serialSetCtrlLineStateCb(ports[0].port, cbCtrlLine, (void *)(intptr_t)(port1PinioDtr));
     }
 
-    serialPassthrough(cliPort, passThroughPort, NULL, NULL);
+    serialPassthrough(ports[0].port, ports[1].port, NULL, NULL);
 }
 #endif
 
 static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *adjustmentRanges, const adjustmentRange_t *defaultAdjustmentRanges, const char *headingStr)
 {
-    const char *format = "adjrange %u %u %u %u %u %u %u %u %u";
+    const char *format = "adjrange %u 0 %u %u %u %u %u %u %u";
     // print out adjustment ranges channel settings
     headingStr = cliPrintSectionHeading(dumpMask, false, headingStr);
     for (uint32_t i = 0; i < MAX_ADJUSTMENT_RANGE_COUNT; i++) {
@@ -1380,7 +1428,6 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
             headingStr = cliPrintSectionHeading(dumpMask, !equalsDefault, headingStr);
             cliDefaultPrintLinef(dumpMask, equalsDefault, format,
                 i,
-                arDefault->adjustmentIndex,
                 arDefault->auxChannelIndex,
                 MODE_STEP_TO_CHANNEL_VALUE(arDefault->range.startStep),
                 MODE_STEP_TO_CHANNEL_VALUE(arDefault->range.endStep),
@@ -1392,7 +1439,6 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
         }
         cliDumpPrintLinef(dumpMask, equalsDefault, format,
             i,
-            ar->adjustmentIndex,
             ar->auxChannelIndex,
             MODE_STEP_TO_CHANNEL_VALUE(ar->range.startStep),
             MODE_STEP_TO_CHANNEL_VALUE(ar->range.endStep),
@@ -1406,7 +1452,7 @@ static void printAdjustmentRange(dumpFlags_t dumpMask, const adjustmentRange_t *
 
 static void cliAdjustmentRange(char *cmdline)
 {
-    const char *format = "adjrange %u %u %u %u %u %u %u %u %u";
+    const char *format = "adjrange %u 0 %u %u %u %u %u %u %u";
     int i, val = 0;
     const char *ptr;
 
@@ -1422,10 +1468,9 @@ static void cliAdjustmentRange(char *cmdline)
             ptr = nextArg(ptr);
             if (ptr) {
                 val = atoi(ptr);
-                if (val >= 0 && val < MAX_SIMULTANEOUS_ADJUSTMENT_COUNT) {
-                    ar->adjustmentIndex = val;
-                    validArgumentCount++;
-                }
+		// Was: slot
+		// Keeping the parameter to retain backwards compatibility for the command format.
+                validArgumentCount++;
             }
             ptr = nextArg(ptr);
             if (ptr) {
@@ -1482,7 +1527,6 @@ static void cliAdjustmentRange(char *cmdline)
 
             cliDumpPrintLinef(0, false, format,
                 i,
-                ar->adjustmentIndex,
                 ar->auxChannelIndex,
                 MODE_STEP_TO_CHANNEL_VALUE(ar->range.startStep),
                 MODE_STEP_TO_CHANNEL_VALUE(ar->range.endStep),
@@ -3271,6 +3315,7 @@ static void cliRebootEx(bool bootLoader)
     bufWriterFlush(cliWriter);
     waitForSerialPortToFinishTransmitting(cliPort);
     stopPwmAllMotors();
+
     if (bootLoader) {
         systemResetToBootloader();
         return;
@@ -4284,12 +4329,7 @@ static void cliStatus(char *cmdline)
 #endif
     cliPrintLinefeed();
 
-#ifdef EEPROM_IN_RAM
-#define CONFIG_SIZE EEPROM_SIZE
-#else
-#define CONFIG_SIZE (&__config_end - &__config_start)
-#endif
-    cliPrintLinef("Config size: %d, Max available config: %d", getEEPROMConfigSize(), CONFIG_SIZE);
+    cliPrintLinef("Config size: %d, Max available config: %d", getEEPROMConfigSize(), getEEPROMStorageSize());
 
     // Sensors
 
@@ -4577,6 +4617,8 @@ const cliResourceValue_t resourceTable[] = {
 #endif
 #ifdef USE_BARO
     DEFS( OWNER_BARO_CS,       PG_BAROMETER_CONFIG, barometerConfig_t, baro_spi_csn ),
+    DEFS( OWNER_BARO_EOC,      PG_BAROMETER_CONFIG, barometerConfig_t, baro_eoc_tag ),
+    DEFS( OWNER_BARO_XCLR,     PG_BAROMETER_CONFIG, barometerConfig_t, baro_xclr_tag ),
 #endif
 #ifdef USE_MAG
     DEFS( OWNER_COMPASS_CS,    PG_COMPASS_CONFIG, compassConfig_t, mag_spi_csn ),
@@ -4801,8 +4843,8 @@ dmaoptEntry_t dmaoptEntryTable[] = {
     DEFW("SPI_RX",  DMA_PERIPH_SPI_RX,  PG_SPI_PIN_CONFIG,     spiPinConfig_t,     rxDmaopt, SPIDEV_COUNT),
     DEFA("ADC",     DMA_PERIPH_ADC,     PG_ADC_CONFIG,         adcConfig_t,        dmaopt,   ADCDEV_COUNT),
     DEFS("SDIO",    DMA_PERIPH_SDIO,    PG_SDIO_CONFIG,        sdioConfig_t,       dmaopt),
-    DEFA("UART_TX", DMA_PERIPH_UART_TX, PG_SERIAL_UART_CONFIG, serialUartConfig_t, txDmaopt, UARTDEV_CONFIG_MAX),
-    DEFA("UART_RX", DMA_PERIPH_UART_RX, PG_SERIAL_UART_CONFIG, serialUartConfig_t, rxDmaopt, UARTDEV_CONFIG_MAX),
+    DEFW("UART_TX", DMA_PERIPH_UART_TX, PG_SERIAL_UART_CONFIG, serialUartConfig_t, txDmaopt, UARTDEV_CONFIG_MAX),
+    DEFW("UART_RX", DMA_PERIPH_UART_RX, PG_SERIAL_UART_CONFIG, serialUartConfig_t, rxDmaopt, UARTDEV_CONFIG_MAX),
 };
 
 #undef DEFS
@@ -4811,6 +4853,14 @@ dmaoptEntry_t dmaoptEntryTable[] = {
 
 #define DMA_OPT_UI_INDEX(i) ((i) + 1)
 #define DMA_OPT_STRING_BUFSIZE 5
+
+#ifdef STM32H7
+#define DMA_CHANREQ_STRING "Request"
+#else
+#define DMA_CHANREQ_STRING "Channel"
+#endif
+
+#define DMASPEC_FORMAT_STRING "DMA%d Stream %d " DMA_CHANREQ_STRING " %d"
 
 static void optToString(int optval, char *buf)
 {
@@ -4834,7 +4884,7 @@ static void printPeripheralDmaoptDetails(dmaoptEntry_t *entry, int index, const 
             dmaCode = dmaChannelSpec->code;
         }
         printValue(dumpMask, equalsDefault,
-            "# %s %d: DMA%d Stream %d Channel %d",
+            "# %s %d: " DMASPEC_FORMAT_STRING,
             entry->device, DMA_OPT_UI_INDEX(index), DMA_CODE_CONTROLLER(dmaCode), DMA_CODE_STREAM(dmaCode), DMA_CODE_CHANNEL(dmaCode));
     } else if (!(dumpMask & HIDE_UNUSED)) {
         printValue(dumpMask, equalsDefault,
@@ -4894,7 +4944,7 @@ static void printTimerDmaoptDetails(const ioTag_t ioTag, const timerHardware_t *
             if (dmaChannelSpec) {
                 dmaCode = dmaChannelSpec->code;
                 printValue(dumpMask, false,
-                    "# pin %c%02d: DMA%d Stream %d Channel %d",
+                    "# pin %c%02d: " DMASPEC_FORMAT_STRING,
                     IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag),
                     DMA_CODE_CONTROLLER(dmaCode), DMA_CODE_STREAM(dmaCode), DMA_CODE_CHANNEL(dmaCode)
                 );
@@ -5066,9 +5116,12 @@ static void cliDmaopt(char *cmdline)
     if (!pch) {
         if (entry) {
             printPeripheralDmaoptDetails(entry, index, *optaddr, true, DUMP_MASTER, cliDumpPrintLinef);
-        } else {
+        }
+#if defined(USE_TIMER_MGMT)
+        else {
             printTimerDmaoptDetails(ioTag, timer, orgval, true, DUMP_MASTER, cliDumpPrintLinef);
         }
+#endif
 
         return;
     } else if (strcasecmp(pch, "list") == 0) {
@@ -5076,11 +5129,11 @@ static void cliDmaopt(char *cmdline)
         const dmaChannelSpec_t *dmaChannelSpec;
         if (entry) {
             for (int opt = 0; (dmaChannelSpec = dmaGetChannelSpecByPeripheral(entry->peripheral, index, opt)); opt++) {
-                cliPrintLinef("# %d: DMA%d Stream %d channel %d", opt, DMA_CODE_CONTROLLER(dmaChannelSpec->code), DMA_CODE_STREAM(dmaChannelSpec->code), DMA_CODE_CHANNEL(dmaChannelSpec->code));
+                cliPrintLinef("# %d: " DMASPEC_FORMAT_STRING, opt, DMA_CODE_CONTROLLER(dmaChannelSpec->code), DMA_CODE_STREAM(dmaChannelSpec->code), DMA_CODE_CHANNEL(dmaChannelSpec->code));
             }
         } else {
             for (int opt = 0; (dmaChannelSpec = dmaGetChannelSpecByTimerValue(timer->tim, timer->channel, opt)); opt++) {
-                cliPrintLinef("# %d: DMA%d Stream %d channel %d", opt, DMA_CODE_CONTROLLER(dmaChannelSpec->code), DMA_CODE_STREAM(dmaChannelSpec->code), DMA_CODE_CHANNEL(dmaChannelSpec->code));
+                cliPrintLinef("# %d: " DMASPEC_FORMAT_STRING, opt, DMA_CODE_CONTROLLER(dmaChannelSpec->code), DMA_CODE_STREAM(dmaChannelSpec->code), DMA_CODE_CHANNEL(dmaChannelSpec->code));
             }
         }
 
@@ -5108,27 +5161,28 @@ static void cliDmaopt(char *cmdline)
         }
 
         char optvalString[DMA_OPT_STRING_BUFSIZE];
-        char orgvalString[DMA_OPT_STRING_BUFSIZE];
         optToString(optval, optvalString);
+
+        char orgvalString[DMA_OPT_STRING_BUFSIZE];
         optToString(orgval, orgvalString);
 
         if (optval != orgval) {
             if (entry) {
                 *optaddr = optval;
 
-                cliPrintLinef("dma %s %d: changed from %s to %s", entry->device, DMA_OPT_UI_INDEX(index), orgvalString, optvalString);
+                cliPrintLinef("# dma %s %d: changed from %s to %s", entry->device, DMA_OPT_UI_INDEX(index), orgvalString, optvalString);
             } else {
 #if defined(USE_TIMER_MGMT)
                 timerIoConfig->dmaopt = optval;
 #endif
 
-                cliPrintLinef("dma pin %c%02d: changed from %s to %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString, optvalString);
+                cliPrintLinef("# dma pin %c%02d: changed from %s to %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString, optvalString);
             }
         } else {
             if (entry) {
-                cliPrintLinef("dma %s %d: no change: %s", entry->device, DMA_OPT_UI_INDEX(index), orgvalString);
+                cliPrintLinef("# dma %s %d: no change: %s", entry->device, DMA_OPT_UI_INDEX(index), orgvalString);
             } else {
-                cliPrintLinef("dma %c%02d: no change: %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag),orgvalString);
+                cliPrintLinef("# dma %c%02d: no change: %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag),orgvalString);
             }
         }
     }
@@ -5250,17 +5304,17 @@ static void cliResource(char *cmdline)
 #ifdef USE_TIMER_MGMT
 static void printTimerDetails(const ioTag_t ioTag, const unsigned timerIndex, const bool equalsDefault, const dumpFlags_t dumpMask, printFn *printValue)
 {
-    const char *format = "timer %c%02d %d";
+    const char *format = "timer %c%02d AF%d";
     const char *emptyFormat = "timer %c%02d NONE";
 
     if (timerIndex > 0) {
+        const timerHardware_t *timer = timerGetByTagAndIndex(ioTag, timerIndex);
         const bool printDetails = printValue(dumpMask, equalsDefault, format,
             IO_GPIOPortIdxByTag(ioTag) + 'A',
             IO_GPIOPinIdxByTag(ioTag),
-            timerIndex - 1
+            timer->alternateFunction
         );
         if (printDetails) {
-            const timerHardware_t *timer = timerGetByTagAndIndex(ioTag, timerIndex);
             printValue(dumpMask, false,
                 "# pin %c%02d: TIM%d CH%d%s (AF%d)",
                 IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag),
@@ -5337,6 +5391,17 @@ static void printTimer(dumpFlags_t dumpMask, const char *headingStr)
 }
 
 #define TIMER_INDEX_UNDEFINED -1
+#define TIMER_AF_STRING_BUFSIZE 5
+
+static void alternateFunctionToString(const ioTag_t ioTag, const int index, char *buf)
+{
+    const timerHardware_t *timer = timerGetByTagAndIndex(ioTag, index + 1);
+    if (!timer) {
+        memcpy(buf, "NONE", TIMER_AF_STRING_BUFSIZE);
+    } else {
+        tfp_sprintf(buf, "AF%d", timer->alternateFunction);
+    }
+}
 
 static void cliTimer(char *cmdline)
 {
@@ -5401,12 +5466,11 @@ static void cliTimer(char *cmdline)
             /* output the list of available options */
             const timerHardware_t *timer;
             for (unsigned index = 0; (timer = timerGetByTagAndIndex(ioTag, index + 1)); index++) {
-                cliPrintLinef("# %d: TIM%d CH%d%s (AF%d)",
-                    index,
+                cliPrintLinef("# AF%d: TIM%d CH%d%s",
+                    timer->alternateFunction,
                     timerGetTIMNumber(timer->tim),
                     CC_INDEX_FROM_CHANNEL(timer->channel) + 1,
-                    timer->output & TIMER_OUTPUT_N_CHANNEL ? "N" : "",
-                    timer->alternateFunction
+                    timer->output & TIMER_OUTPUT_N_CHANNEL ? "N" : ""
                 );
             }
 
@@ -5448,15 +5512,15 @@ static void cliTimer(char *cmdline)
         timerIOConfigMutable(timerIOIndex)->dmaopt = DMA_OPT_UNUSED;
 
         char optvalString[DMA_OPT_STRING_BUFSIZE];
-        optToString(timerIndex, optvalString);
+        alternateFunctionToString(ioTag, timerIndex, optvalString);
 
         char orgvalString[DMA_OPT_STRING_BUFSIZE];
-        optToString(oldTimerIndex, orgvalString);
+        alternateFunctionToString(ioTag, oldTimerIndex, orgvalString);
 
         if (timerIndex == oldTimerIndex) {
-            cliPrintLinef("timer %c%02d: no change: %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString);
+            cliPrintLinef("# timer %c%02d: no change: %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString);
         } else {
-            cliPrintLinef("timer %c%02d: changed from %s to %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString, optvalString);
+            cliPrintLinef("# timer %c%02d: changed from %s to %s", IO_GPIOPortIdxByTag(ioTag) + 'A', IO_GPIOPinIdxByTag(ioTag), orgvalString, optvalString);
         }
 
         return;
@@ -5793,7 +5857,7 @@ static void cliHelp(char *cmdline);
 
 // should be sorted a..z for bsearch()
 const clicmd_t cmdTable[] = {
-    CLI_COMMAND_DEF("adjrange", "configure adjustment ranges", NULL, cliAdjustmentRange),
+    CLI_COMMAND_DEF("adjrange", "configure adjustment ranges", "<index> <unused> <range channel> <start> <end> <function> <select channel> [<center> <scale>]", cliAdjustmentRange),
     CLI_COMMAND_DEF("aux", "configure modes", "<index> <mode> <aux> <start> <end> <logic>", cliAux),
 #ifdef USE_CLI_BATCH
     CLI_COMMAND_DEF("batch", "start or end a batch of commands", "start | end", cliBatch),
@@ -5901,9 +5965,9 @@ const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("serial", "configure serial ports", NULL, cliSerial),
 #if defined(USE_SERIAL_PASSTHROUGH)
 #if defined(USE_PINIO)
-    CLI_COMMAND_DEF("serialpassthrough", "passthrough serial data to port", "<id> [baud] [mode] [dtr pinio|'reset']", cliSerialPassthrough),
+    CLI_COMMAND_DEF("serialpassthrough", "passthrough serial data data from port 1 to VCP / port 2", "<id1> [<baud1>] [<mode>1] [none|<dtr pinio>|reset] [<id2>] [<baud2>] [<mode2>]", cliSerialPassthrough),
 #else
-    CLI_COMMAND_DEF("serialpassthrough", "passthrough serial data to port", "<id> [baud] [mode] ['reset']", cliSerialPassthrough),
+    CLI_COMMAND_DEF("serialpassthrough", "passthrough serial data from port 1 to VCP / port 2", "<id1> [<baud1>] [<mode1>] [none|reset] [<id2>] [<baud2>] [<mode2>]", cliSerialPassthrough),
 #endif
 #endif
 #ifdef USE_SERVOS
@@ -5924,7 +5988,7 @@ const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("tasks", "show task stats", NULL, cliTasks),
 #endif
 #ifdef USE_TIMER_MGMT
-    CLI_COMMAND_DEF("timer", "show/set timers", "<> | <pin> list | <pin> [<option>|af<altenate function>|none] | list | show", cliTimer),
+    CLI_COMMAND_DEF("timer", "show/set timers", "<> | <pin> list | <pin> [af<alternate function>|none|<option(deprecated)>] | list | show", cliTimer),
 #endif
     CLI_COMMAND_DEF("version", "show version", NULL, cliVersion),
 #ifdef USE_VTX_CONTROL

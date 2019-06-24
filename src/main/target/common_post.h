@@ -60,9 +60,14 @@
 #endif
 #endif
 
-#if !defined(USE_BARO)
+#if !defined(USE_BARO) && !defined(USE_GPS)
 #undef USE_VARIO
 #endif
+
+#if defined(USE_BARO) && !defined(BARO_EOC_PIN)
+#define BARO_EOC_PIN NONE
+#endif
+
 
 #if !defined(USE_SERIAL_RX)
 #undef USE_SERIALRX_CRSF
@@ -324,7 +329,26 @@
 #undef USE_RANGEFINDER_TF
 #endif
 
+#ifndef USE_GPS_RESCUE
+#undef USE_CMS_GPS_RESCUE_MENU
+#endif
+
 // TODO: Remove this once HAL support is fixed for ESCSERIAL
 #ifdef STM32F7
 #undef USE_ESCSERIAL
+#endif
+
+#if defined(EEPROM_IN_RAM) || defined(EEPROM_IN_FILE) || defined(EEPROM_IN_EXTERNAL_FLASH) || defined(EEPROM_IN_SDCARD)
+#ifndef EEPROM_SIZE
+#define EEPROM_SIZE     4096
+#endif
+extern uint8_t eepromData[EEPROM_SIZE];
+#define __config_start (*eepromData)
+#define __config_end (*ARRAYEND(eepromData))
+#else
+#ifndef EEPROM_IN_FLASH
+#define EEPROM_IN_FLASH
+#endif
+extern uint8_t __config_start;   // configured via linker script when building binaries.
+extern uint8_t __config_end;
 #endif
